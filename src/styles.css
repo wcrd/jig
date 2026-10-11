@@ -1873,6 +1873,7 @@ dialog.prompt.editor {
 }
 
 .prompt-hint {
+  align-self: center;
   margin-right: auto;
   align-self: center;
   font-size: 11.5px;
@@ -2829,6 +2830,14 @@ dialog.prompt.settings {
 
 dialog.prompt.settings .list-section {
   padding-left: 0;
+}
+
+.settings-version {
+  align-self: center;
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 11px;
+  user-select: text;
 }
 
 .theme-options {

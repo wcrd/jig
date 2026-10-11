@@ -102,6 +102,10 @@ function swatches(colors: string[], cls: string): string {
   return `<span class="swatches ${cls}">${colors.map((c) => `<span style="background:${c}"></span>`).join("")}</span>`;
 }
 
+/** Set by vite.config.ts from tauri.conf.json and git. */
+declare const __APP_VERSION__: string;
+declare const __APP_COMMIT__: string;
+
 let open: HTMLDialogElement | null = null;
 
 export function showSettings() {
@@ -128,7 +132,8 @@ export function showSettings() {
         swatches(p.dark, "dark") +
         `</label>`,
     ).join("") +
-    `</div><div class="prompt-buttons"><button class="primary" autofocus>Done</button></div>`;
+    `</div><div class="prompt-buttons"><span class="settings-version">Jig ${escapeHtml(__APP_VERSION__)}${__APP_COMMIT__ ? ` (${escapeHtml(__APP_COMMIT__)})` : ""}</span>` +
+    `<button class="primary" autofocus>Done</button></div>`;
   document.body.appendChild(dialog);
   dialog.addEventListener("change", (event) => {
     const input = event.target as HTMLInputElement;
