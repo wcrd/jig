@@ -1,0 +1,26 @@
+[package]
+name = "jork"
+version = "0.1.0"
+description = "A graph viewer for Jujutsu"
+edition = "2024"
+
+[lib]
+name = "jork_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+chrono = "0.4"
+pollster = "0.4"
+futures = "0.3"
+
+# Pinned to the installed jj CLI so the on-disk repo formats always agree.
+jj-lib = "=0.40.0"
+jj-cli = "=0.40.0"
