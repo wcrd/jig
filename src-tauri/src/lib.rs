@@ -332,6 +332,28 @@ async fn jj_duplicate(
     jj_in(path, move || jj_cli::revisions_args("duplicate", &revisions)).await
 }
 
+/// Cherry-pick: copy commits onto, after or before another.
+#[tauri::command]
+async fn jj_duplicate_to(
+    path: String,
+    revisions: Vec<String>,
+    target: String,
+    placement: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::placed_args("duplicate", &revisions, &target, &placement)).await
+}
+
+/// A new commit undoing others' changes, placed onto, after or before a commit.
+#[tauri::command]
+async fn jj_revert(
+    path: String,
+    revisions: Vec<String>,
+    target: String,
+    placement: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::placed_args("revert", &revisions, &target, &placement)).await
+}
+
 #[tauri::command]
 async fn jj_absorb(path: String, revision: String) -> Result<jj_cli::CommandOutput, String> {
     jj_in(path, move || jj_cli::absorb_args(&revision)).await
@@ -473,6 +495,8 @@ pub fn run() {
             load_log,
             commit_diff,
             compare_diff,
+            jj_duplicate_to,
+            jj_revert,
             file_diff,
             file_text,
             conflict_hunks,

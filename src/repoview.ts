@@ -30,7 +30,10 @@ type Pending =
   | { kind: "rebase"; source: number; mode: RebaseMode; placement: Placement; target: number }
   | { kind: "squash"; source: number; target: number; paths: string[] }
   | { kind: "abandon"; marked: Set<number> }
-  | { kind: "split"; source: number; message: string | null };
+  | { kind: "split"; source: number; message: string | null }
+  /** Cherry-pick (jj duplicate) or revert, placed relative to a target. */
+  | { kind: "duplicate"; source: number; placement: Placement; target: number }
+  | { kind: "revert"; source: number; placement: Placement; target: number };
 
 const MODE_LABELS: Record<RebaseMode, string> = {
   revision: "This commit",
@@ -199,10 +202,8 @@ export class RepoView {
       if (button.dataset.action === "run") return this.runPending();
       if (button.dataset.action === "cancel") return this.cancelPending();
       if (button.dataset.action === "message" && p.kind === "split") return this.editSplitMessage();
-      if (p.kind === "rebase") {
-        if (button.dataset.mode) p.mode = button.dataset.mode as RebaseMode;
-        if (button.dataset.placement) p.placement = button.dataset.placement as Placement;
-      }
+      if (p.kind === "rebase" && button.dataset.mode) p.mode = button.dataset.mode as RebaseMode;
+      if ("placement" in p && button.dataset.placement) p.placement = button.dataset.placement as Placement;
       this.updatePending();
     });
     this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
@@ -412,7 +413,10 @@ export class RepoView {
         this.details.setTab("changes");
         return true;
       case "y":
-        this.act(`Duplicate ${row.changeId.slice(0, 8)}`, () => jj.duplicate(this.path, [row.commitId]), { undo: true });
+        this.startPlaced("duplicate", this.selected);
+        return true;
+      case "R":
+        this.startPlaced("revert", this.selected);
         return true;
       case "A":
         this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true });
@@ -462,6 +466,19 @@ export class RepoView {
     this.updatePending();
   }
 
+  /**
+   * Cherry-pick (y) or revert (⇧R): choose where the copy or the undoing
+   * commit goes, onto `@` by default since that's usually where you are.
+   */
+  private startPlaced(kind: "duplicate" | "revert", source: number) {
+    const wc = this.log!.rows.findIndex((r) => r.isWorkingCopy);
+    const target = wc >= 0 ? wc : source;
+    this.pending = { kind, source, placement: "onto", target } as Pending;
+    this.compareIndex = -1;
+    this.reveal(target);
+    this.updatePending();
+  }
+
   /** Squash a commit (or just `paths` from it) into another; the parent by default. */
   private startSquash(source: number, paths: string[] = []) {
     const parent = this.relations!.parentsOf(source)[0];
@@ -502,7 +519,7 @@ export class RepoView {
 
   private setTarget(index: number) {
     const p = this.pending;
-    if (!p || (p.kind !== "rebase" && p.kind !== "squash")) return;
+    if (!p || !("target" in p)) return;
     p.target = Math.max(0, Math.min(this.log!.rows.length - 1, index));
     this.reveal(p.target);
     this.updatePending();
@@ -520,7 +537,7 @@ export class RepoView {
   private movingRows(): Set<number> {
     const p = this.pending!;
     if (p.kind === "abandon") return p.marked;
-    if (p.kind === "split" || p.kind === "squash" || p.mode === "revision") return new Set([p.source]);
+    if (p.kind !== "rebase" || p.mode === "revision") return new Set([p.source]);
     if (p.mode === "source") return this.relations!.descendants([p.source]);
     return this.relations!.branch([p.source], p.target);
   }
@@ -541,12 +558,14 @@ export class RepoView {
       if (selected === total) return "Leave something for the second commit";
       return null;
     }
+    if (p.kind === "duplicate" || p.kind === "revert") return null;
     const moving = this.movingRows();
     if (p.kind === "squash") {
       if (p.target === p.source) return "Pick another commit to squash into";
       if (rows[p.source].immutable || rows[p.target].immutable) return "Can't squash into or from an immutable commit";
       return null;
     }
+    if (p.kind !== "rebase") return null;
     if (moving.has(p.target) && !(p.mode === "revision" && p.target !== p.source)) {
       return "Pick a destination outside the commits being moved";
     }
@@ -565,7 +584,7 @@ export class RepoView {
       else if (p.kind === "abandon") this.select(to);
       else this.setTarget(to);
     };
-    const current = p.kind === "rebase" || p.kind === "squash" ? p.target : this.selected;
+    const current = "target" in p ? p.target : this.selected;
     const moves: Record<string, number> = {
       ArrowDown: current + 1,
       j: current + 1,
@@ -602,10 +621,10 @@ export class RepoView {
       }
       return event.key.length === 1;
     }
-    if (p.kind === "rebase") {
+    if (p.kind === "rebase" || p.kind === "duplicate" || p.kind === "revert") {
       const modes: Record<string, RebaseMode> = { r: "revision", s: "source", B: "branch" };
       const placements: Record<string, Placement> = { o: "onto", a: "after", b: "before" };
-      if (event.key in modes) p.mode = modes[event.key];
+      if (p.kind === "rebase" && event.key in modes) p.mode = modes[event.key];
       else if (event.key in placements) p.placement = placements[event.key];
       else return event.key.length === 1;
       this.updatePending();
@@ -651,6 +670,16 @@ export class RepoView {
         `</span>${id(p.target)} ${summary(p.target)}`;
       action = "Rebase";
       hint = "↑↓ choose · Enter · Esc";
+    } else if (p.kind === "duplicate" || p.kind === "revert") {
+      const title = p.kind === "duplicate" ? "Copy" : "Revert";
+      body =
+        `<span class="modebar-title">${title}</span>${id(p.source)} ${summary(p.source)}<span class="segmented">` +
+        segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
+        segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
+        segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "b") +
+        `</span>${id(p.target)} ${summary(p.target)}`;
+      action = p.kind === "duplicate" ? "Copy" : "Revert";
+      hint = "↑↓ choose · Enter · Esc";
     } else if (p.kind === "squash") {
       const what = p.paths.length === 0 ? "" : ` <span class="muted">(${p.paths.length === 1 ? escapeHtml(p.paths[0]) : `${p.paths.length} files`})</span>`;
       body = `<span class="modebar-title">Squash</span>${id(p.source)}${what} <span class="muted">into</span> ${id(p.target)} ${summary(p.target)}`;
@@ -690,6 +719,13 @@ export class RepoView {
       await this.act(
         `Rebase ${short(p.source)} ${p.placement} ${short(p.target)}`,
         () => jj.rebase(this.path, [rows[p.source].commitId], p.mode, rows[p.target].commitId, p.placement),
+        { undo: true },
+      );
+    } else if (p.kind === "duplicate" || p.kind === "revert") {
+      const run = p.kind === "duplicate" ? jj.duplicateTo : jj.revert;
+      await this.act(
+        `${p.kind === "duplicate" ? "Copy" : "Revert"} ${short(p.source)} ${p.placement} ${short(p.target)}`,
+        () => run(this.path, [rows[p.source].commitId], rows[p.target].commitId, p.placement),
         { undo: true },
       );
     } else if (p.kind === "squash") {
@@ -880,11 +916,11 @@ export class RepoView {
       el.classList.toggle("selected", i === this.selected);
       el.classList.toggle("compare", i === this.compareIndex);
       const p = this.pending;
-      const target = p && (p.kind === "rebase" || p.kind === "squash") ? p.target : -1;
+      const target = p && "target" in p ? p.target : -1;
       el.classList.toggle("rebase-moving", !!moving?.has(i));
       el.classList.toggle("rebase-target", i === target);
       el.classList.toggle("abandon-marked", p?.kind === "abandon" && p.marked.has(i));
-      el.dataset.placement = i === target ? (p?.kind === "rebase" ? p.placement : "onto") : "";
+      el.dataset.placement = i === target && p && "placement" in p ? p.placement : i === target ? "onto" : "";
     }
   }
 
@@ -1020,7 +1056,8 @@ export class RepoView {
       { text: "Squash into…", action: () => this.startSquash(index), enabled: !row.immutable },
       { text: "Split…", action: () => this.startSplit(index), enabled: !row.immutable },
       { text: "Absorb into Ancestors", action: () => this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true }), enabled: !row.immutable },
-      { text: "Duplicate", action: () => this.act(`Duplicate ${row.changeId.slice(0, 8)}`, () => jj.duplicate(this.path, [row.commitId]), { undo: true }) },
+      { text: "Copy to… (Cherry-pick)", action: () => this.startPlaced("duplicate", index) },
+      { text: "Revert…", action: () => this.startPlaced("revert", index) },
       { text: "Abandon…", action: () => this.startAbandon(index), enabled: !row.immutable },
       "separator",
       { text: "New Bookmark Here…", action: () => this.createBookmark(row) },

@@ -103,6 +103,10 @@ export const jj = {
     invoke<CommandOutput>("jj_resolve", { path, revision, filePath, content }),
   resolveSide: (path: string, revision: string, filePath: string, side: "ours" | "theirs") =>
     invoke<CommandOutput>("jj_resolve_side", { path, revision, filePath, side }),
+  duplicateTo: (path: string, revisions: string[], target: string, placement: string) =>
+    invoke<CommandOutput>("jj_duplicate_to", { path, revisions, target, placement }),
+  revert: (path: string, revisions: string[], target: string, placement: string) =>
+    invoke<CommandOutput>("jj_revert", { path, revisions, target, placement }),
   undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
   redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };

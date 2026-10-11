@@ -169,7 +169,8 @@ const HELP: [string, [string, string][]][] = [
       ["⇧S", "Squash"],
       ["s", "Split"],
       ["a", "Abandon"],
-      ["y", "Duplicate"],
+      ["y", "Copy (cherry-pick)"],
+      ["⇧R", "Revert"],
       ["⇧A", "Absorb"],
       ["⇧B", "Set bookmark"],
       ["b", "Find bookmark"],
@@ -183,6 +184,14 @@ const HELP: [string, [string, string][]][] = [
       ["o / a / b", "Onto / after / before"],
       ["↑ ↓  @", "Choose destination"],
       ["↩  Esc", "Rebase / cancel"],
+    ],
+  ],
+  [
+    "Copy / revert",
+    [
+      ["o / a / b", "Onto / after / before"],
+      ["↑ ↓  @", "Choose destination"],
+      ["↩  Esc", "Run / cancel"],
     ],
   ],
   [

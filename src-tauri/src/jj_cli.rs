@@ -182,6 +182,38 @@ pub fn rebase_args(
     Ok(args)
 }
 
+fn placement_flag(placement: &str) -> Result<&'static str> {
+    Ok(match placement {
+        "onto" => "--onto",
+        "after" => "--insert-after",
+        "before" => "--insert-before",
+        _ => bail!("unknown placement: {placement:?}"),
+    })
+}
+
+/// `jj duplicate` (cherry-pick) or `jj revert` of `revisions`, placed onto,
+/// after or before `target`.
+pub fn placed_args(
+    command: &str,
+    revisions: &[String],
+    target: &str,
+    placement: &str,
+) -> Result<Vec<String>> {
+    validate_revisions(revisions)?;
+    validate_revision(target)?;
+    let flag = placement_flag(placement)?;
+    let mut args = strings(&[command]);
+    match command {
+        // revert takes its revisions with -r; duplicate takes them positionally.
+        "revert" => push_flagged(&mut args, "--revision", revisions),
+        "duplicate" => args.extend(revisions.iter().cloned()),
+        _ => bail!("unsupported command: {command}"),
+    }
+    args.push(flag.to_owned());
+    args.push(target.to_owned());
+    Ok(args)
+}
+
 /// `jj <command> <revisions…>`, for commands taking revsets positionally.
 pub fn revisions_args(command: &str, revisions: &[String]) -> Result<Vec<String>> {
     validate_revisions(revisions)?;
@@ -345,6 +377,22 @@ pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn placed_arg_building() {
+        let revs = vec!["a1".to_owned()];
+        assert_eq!(
+            placed_args("revert", &revs, "c3", "onto").unwrap(),
+            strings(&["revert", "--revision", "a1", "--onto", "c3"])
+        );
+        assert_eq!(
+            placed_args("duplicate", &revs, "c3", "before").unwrap(),
+            strings(&["duplicate", "a1", "--insert-before", "c3"])
+        );
+        assert!(placed_args("revert", &revs, "c3", "sideways").is_err());
+        assert!(placed_args("abandon", &revs, "c3", "onto").is_err());
+        assert!(placed_args("revert", &[], "c3", "onto").is_err());
+    }
 
     #[test]
     fn ref_names() {
