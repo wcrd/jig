@@ -5,14 +5,18 @@ import type { EdgeLayout } from "./types";
 export class Relations {
   private parents: number[][];
   private children: number[][];
+  /** Only actual parents, not ancestors standing in for elided commits. */
+  private direct: number[][];
 
   constructor(rowCount: number, edges: EdgeLayout[]) {
     this.parents = Array.from({ length: rowCount }, () => []);
     this.children = Array.from({ length: rowCount }, () => []);
+    this.direct = Array.from({ length: rowCount }, () => []);
     for (const edge of edges) {
       if (edge.toRow === null || edge.kind === "missing") continue;
       this.parents[edge.fromRow].push(edge.toRow);
       this.children[edge.toRow].push(edge.fromRow);
+      if (edge.kind === "direct") this.direct[edge.fromRow].push(edge.toRow);
     }
   }
 
@@ -31,6 +35,11 @@ export class Relations {
   /** A row's parents shown in the graph, first parent first. */
   parentsOf(row: number): number[] {
     return this.parents[row] ?? [];
+  }
+
+  /** A row's actual parents among the loaded rows, first parent first. */
+  directParentsOf(row: number): number[] {
+    return this.direct[row] ?? [];
   }
 
   /** The rows and all their descendants shown in the graph. */

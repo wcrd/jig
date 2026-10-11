@@ -32,6 +32,8 @@ type Pending =
   | { kind: "rebase"; source: number; mode: RebaseMode; placement: Placement; target: number }
   | { kind: "squash"; source: number; target: number; paths: string[] }
   | { kind: "abandon"; marked: Set<number> }
+  /** ⇧M: choose a commit's parents, first parent first; its descendants follow. */
+  | { kind: "parents"; source: number; marked: number[] }
   | { kind: "split"; source: number; message: string | null }
   /** Cherry-pick (jj duplicate) or revert, placed relative to a target. */
   | { kind: "duplicate"; source: number; placement: Placement; target: number }
@@ -168,6 +170,7 @@ export class RepoView {
       select: (item) => this.selectCommit(item.commitId, item.name),
       contextMenu: (item) => this.sidebarMenu(item),
     });
+    this.ref("repo-name").textContent = this.name;
 
     this.revsetInput.value = this.revset;
     this.syncPreset();
@@ -188,7 +191,7 @@ export class RepoView {
       const index = Number(row.dataset.index);
       if (this.pending) {
         // While picking, clicks choose the destination or toggle a mark.
-        if (this.pending.kind === "abandon") {
+        if (this.pending.kind === "abandon" || this.pending.kind === "parents") {
           this.select(index, false);
           this.toggleMark(index);
         } else {
@@ -272,6 +275,7 @@ export class RepoView {
       this.pending = null;
       this.updateModebar();
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
+      this.showRepoName(next);
       this.revsetInput.placeholder = next.defaultRevset;
       const previousCompare = this.compareIndex >= 0 ? this.log?.rows[this.compareIndex]?.changeId : null;
       let selected = previousChange ? next.rows.findIndex((r) => r.changeId === previousChange) : -1;
@@ -294,6 +298,14 @@ export class RepoView {
     } finally {
       this.loading = false;
     }
+  }
+
+  /** The repo's folder name atop the sidebar, with the workspace when it isn't the default. */
+  private showRepoName(log: LogResponse) {
+    const el = this.ref("repo-name");
+    const workspace = log.workspaceName !== "default" ? ` <span class="workspace-name">· ${escapeHtml(log.workspaceName)}</span>` : "";
+    el.innerHTML = escapeHtml(this.name) + workspace;
+    el.title = log.workspaceRoot;
   }
 
   /** Reloads if jj has run an operation since the last load. */
@@ -528,7 +540,10 @@ export class RepoView {
         this.setBookmark(row);
         return true;
       case "b":
-        this.ref<HTMLInputElement>("sidebar").querySelector<HTMLInputElement>(".sidebar-filter")?.focus();
+        this.bookmarkMenu(this.selected);
+        return true;
+      case "M":
+        this.startSetParents(this.selected);
         return true;
       case "J": {
         const parent = this.relations?.parentsOf(this.selected)[0];
@@ -621,11 +636,23 @@ export class RepoView {
     this.updatePending();
   }
 
+  /** ⇧M: starts from the current parents; Space adds or removes one. */
+  private startSetParents(index: number) {
+    this.pending = { kind: "parents", source: index, marked: [...this.relations!.directParentsOf(index)] };
+    this.compareIndex = -1;
+    this.updatePending();
+  }
+
   private toggleMark(index: number) {
     const p = this.pending;
-    if (p?.kind !== "abandon") return;
-    if (p.marked.has(index)) p.marked.delete(index);
-    else p.marked.add(index);
+    if (p?.kind === "abandon") {
+      if (p.marked.has(index)) p.marked.delete(index);
+      else p.marked.add(index);
+    } else if (p?.kind === "parents") {
+      const at = p.marked.indexOf(index);
+      if (at >= 0) p.marked.splice(at, 1);
+      else p.marked.push(index);
+    } else return;
     this.updatePending();
   }
 
@@ -655,6 +682,7 @@ export class RepoView {
   private movingRows(): Set<number> {
     const p = this.pending!;
     if (p.kind === "abandon") return p.marked;
+    if (p.kind === "parents") return this.relations!.descendants([p.source]);
     if (p.kind !== "rebase" || p.mode === "revision") return new Set([p.source]);
     if (p.mode === "source") return this.relations!.descendants([p.source]);
     return this.relations!.branch([p.source], p.target);
@@ -678,6 +706,15 @@ export class RepoView {
     }
     if (p.kind === "duplicate" || p.kind === "revert") return null;
     const moving = this.movingRows();
+    if (p.kind === "parents") {
+      const current = this.relations!.directParentsOf(p.source);
+      if (rows[p.source].immutable) return "This commit is immutable";
+      if (current.length < rows[p.source].parentCount) return "Some parents aren't shown; widen the revset to change them";
+      if (p.marked.length === 0) return "Mark at least one parent with Space";
+      if (p.marked.some((i) => moving.has(i))) return "A parent can't be the commit or one of its descendants";
+      if (p.marked.length === current.length && p.marked.every((i, n) => i === current[n])) return "Mark different parents with Space";
+      return null;
+    }
     if (p.kind === "squash") {
       if (p.target === p.source) return "Pick another commit to squash into";
       if (rows[p.source].immutable || rows[p.target].immutable) return "Can't squash into or from an immutable commit";
@@ -699,7 +736,7 @@ export class RepoView {
     const move = (to: number) => {
       // Splitting keeps the commit fixed; the arrows step through its files.
       if (p.kind === "split") this.details.moveFile(Math.sign(to - this.selected) as 1 | -1);
-      else if (p.kind === "abandon") this.select(to);
+      else if (p.kind === "abandon" || p.kind === "parents") this.select(to);
       else this.setTarget(to);
     };
     const current = "target" in p ? p.target : this.selected;
@@ -737,6 +774,10 @@ export class RepoView {
         for (const r of this.relations!.descendants([this.selected])) p.marked.add(r);
         this.updatePending();
       }
+      return event.key.length === 1;
+    }
+    if (p.kind === "parents") {
+      if (event.key === " ") this.toggleMark(this.selected);
       return event.key.length === 1;
     }
     if (p.kind === "rebase" || p.kind === "duplicate" || p.kind === "revert") {
@@ -811,6 +852,11 @@ export class RepoView {
         `<button class="modebar-button" data-action="message">${p.message === null ? "First commit message…" : "Edit message…"}</button>`;
       action = "Split";
       hint = "Tick files, hunks or lines · Enter · Esc";
+    } else if (p.kind === "parents") {
+      const parents = p.marked.length > 0 ? p.marked.map((i) => id(i)).join(" ") : `<span class="muted">none</span>`;
+      body = `<span class="modebar-title">Set Parents</span>${id(p.source)} ${summary(p.source)} <span class="muted">onto</span> ${parents}`;
+      action = "Set Parents";
+      hint = "Space mark · Enter · Esc";
     } else {
       const count = p.marked.size;
       body = `<span class="modebar-title">Abandon</span><span>${count} ${count === 1 ? "commit" : "commits"} marked</span>`;
@@ -844,6 +890,12 @@ export class RepoView {
       await this.act(
         `${p.kind === "duplicate" ? "Copy" : "Revert"} ${short(p.source)} ${p.placement} ${short(p.target)}`,
         () => run(this.path, [rows[p.source].commitId], rows[p.target].commitId, p.placement),
+        { undo: true },
+      );
+    } else if (p.kind === "parents") {
+      await this.act(
+        `Set parents of ${short(p.source)}`,
+        () => jj.setParents(this.path, rows[p.source].commitId, p.marked.map((i) => rows[i].commitId)),
         { undo: true },
       );
     } else if (p.kind === "squash") {
@@ -1039,6 +1091,7 @@ export class RepoView {
       el.classList.toggle("rebase-moving", !!moving?.has(i));
       el.classList.toggle("rebase-target", i === target);
       el.classList.toggle("abandon-marked", p?.kind === "abandon" && p.marked.has(i));
+      el.classList.toggle("parent-marked", p?.kind === "parents" && p.marked.includes(i));
       el.dataset.placement = i === target && p && "placement" in p ? p.placement : i === target ? "onto" : "";
     }
   }
@@ -1198,6 +1251,47 @@ export class RepoView {
       "Delete",
     );
     if (ok) this.act(`Delete bookmark ${name}`, () => jj.bookmarkDelete(this.path, name));
+  }
+
+  /**
+   * b: bookmark commands for a commit, as jjui's bookmark menu has them. The
+   * native menu takes the keyboard: arrows, typing to jump, ↩ to choose.
+   */
+  private bookmarkMenu(index: number) {
+    const rows = this.log!.rows;
+    const row = rows[index];
+    const here = row.refs.filter((r) => r.type === "bookmark").map((r) => r.name);
+    // Bookmarks nearest the commit in the graph first, then those not shown.
+    const rowOf = new Map(rows.map((r, i) => [r.commitId, i]));
+    const commitOf = new Map((this.log!.sidebar.bookmarks ?? []).map((b) => [b.name, b.commitId]));
+    const distance = (name: string) => {
+      const at = rowOf.get(commitOf.get(name) ?? "");
+      return at === undefined ? Infinity : Math.abs(at - index);
+    };
+    const others = this.localBookmarks()
+      .filter((n) => !here.includes(n))
+      .sort((a, b) => distance(a) - distance(b) || a.localeCompare(b));
+    const entries: MenuEntry[] = [{ text: "New Bookmark Here…", action: () => this.createBookmark(row) }];
+    for (const name of here) entries.push(this.pushEntry(name));
+    for (const name of here) entries.push({ text: `Delete “${name}”…`, action: () => this.deleteBookmark(name) });
+    const remotes = row.refs.flatMap((r) => (r.type === "remoteBookmark" ? [r] : []));
+    for (const r of remotes) entries.push(this.trackEntry(r.name, r.remote, r.tracked));
+    if (others.length > 0) {
+      entries.push("separator");
+      for (const name of others) {
+        entries.push({
+          text: `Move “${name}” Here`,
+          action: () => this.act(`Move bookmark ${name}`, () => jj.bookmarkSet(this.path, name, row.commitId), { undo: true }),
+        });
+      }
+    }
+    entries.push("separator", {
+      text: "Find Bookmark…",
+      action: () => this.ref("sidebar").querySelector<HTMLInputElement>(".sidebar-filter")?.focus(),
+    });
+    this.reveal(index);
+    const rect = this.rendered.get(index)?.querySelector(".summary")?.getBoundingClientRect();
+    showMenu(entries, rect ? { x: rect.left, y: rect.bottom } : undefined);
   }
 
   private commitMenu(index: number) {

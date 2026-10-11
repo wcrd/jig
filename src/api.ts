@@ -92,6 +92,8 @@ export const jj = {
     invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement }),
   newChange: (path: string, parents: string[]) => invoke<CommandOutput>("jj_new", { path, parents }),
   edit: (path: string, revision: string) => invoke<CommandOutput>("jj_edit", { path, revision }),
+  setParents: (path: string, revision: string, parents: string[]) =>
+    invoke<CommandOutput>("jj_set_parents", { path, revision, parents }),
   abandon: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_abandon", { path, revisions }),
   describe: (path: string, revision: string, message: string) =>
     invoke<CommandOutput>("jj_describe", { path, revision, message }),

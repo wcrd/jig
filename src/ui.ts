@@ -1,6 +1,7 @@
 // Small UI pieces: native context menus, a text prompt, confirmations and
 // toasts for command results.
 
+import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { ask } from "@tauri-apps/plugin-dialog";
 
@@ -27,11 +28,11 @@ async function buildItems(entries: MenuEntry[]): Promise<NativeItem[]> {
   );
 }
 
-/** Shows a native context menu at the pointer. */
-export async function showMenu(entries: MenuEntry[]) {
+/** Shows a native context menu at the pointer, or at `at` in window coordinates. */
+export async function showMenu(entries: MenuEntry[], at?: { x: number; y: number }) {
   if (!isTauri) return;
   const menu = await Menu.new({ items: await buildItems(entries) });
-  await menu.popup();
+  await menu.popup(at ? new LogicalPosition(at.x, at.y) : undefined);
 }
 
 export async function confirm(message: string, title: string, okLabel: string): Promise<boolean> {
@@ -181,7 +182,8 @@ const HELP: [string, [string, string][]][] = [
       ["⇧R", "Revert"],
       ["⇧A", "Absorb"],
       ["⇧B", "Set bookmark"],
-      ["b", "Find bookmark"],
+      ["b", "Bookmarks menu"],
+      ["⇧M", "Set parents"],
       ["⌘-click", "Compare"],
     ],
   ],
@@ -200,6 +202,14 @@ const HELP: [string, [string, string][]][] = [
       ["o / a / b", "Onto / after / before"],
       ["↑ ↓  @", "Choose destination"],
       ["↩  Esc", "Run / cancel"],
+    ],
+  ],
+  [
+    "Set parents",
+    [
+      ["↑ ↓  @", "Move"],
+      ["Space", "Mark / unmark a parent"],
+      ["↩  Esc", "Set / cancel"],
     ],
   ],
   [

@@ -379,6 +379,11 @@ async fn jj_rebase(
 }
 
 #[tauri::command]
+async fn jj_set_parents(path: String, revision: String, parents: Vec<String>) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::set_parents_args(&revision, &parents)).await
+}
+
+#[tauri::command]
 async fn jj_undo(path: String) -> Result<jj_cli::CommandOutput, String> {
     jj_in(path, || Ok(jj_cli::strings(&["undo"]))).await
 }
@@ -601,6 +606,7 @@ pub fn run() {
             open_url,
             jj_git_push,
             jj_rebase,
+            jj_set_parents,
             jj_undo,
             jj_redo,
             jj_new,

@@ -182,6 +182,16 @@ pub fn rebase_args(
     Ok(args)
 }
 
+/// `jj rebase --source revision --onto p1 --onto p2 ...`: replaces the
+/// commit's parents, its descendants coming along.
+pub fn set_parents_args(revision: &str, parents: &[String]) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    validate_revisions(parents)?;
+    let mut args = strings(&["rebase", "--source", revision]);
+    push_flagged(&mut args, "--onto", parents);
+    Ok(args)
+}
+
 fn placement_flag(placement: &str) -> Result<&'static str> {
     Ok(match placement {
         "onto" => "--onto",
@@ -449,6 +459,11 @@ mod tests {
             v(&["rebase", "--branch", "a1", "--insert-before", "c3"])
         );
         assert!(rebase_args(&[], "revision", "c3", "onto").is_err());
+        assert_eq!(
+            set_parents_args("a1", &v(&["b2", "c3"])).unwrap(),
+            v(&["rebase", "--source", "a1", "--onto", "b2", "--onto", "c3"])
+        );
+        assert!(set_parents_args("a1", &[]).is_err());
         assert!(rebase_args(&v(&["a1"]), "x", "c3", "onto").is_err());
         assert!(rebase_args(&v(&["a1"]), "revision", "c3", "x").is_err());
         assert!(rebase_args(&v(&["@"]), "revision", "c3", "onto").is_err());

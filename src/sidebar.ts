@@ -54,7 +54,7 @@ export class Sidebar {
     private el: HTMLElement,
     callbacks: SidebarCallbacks,
   ) {
-    el.innerHTML = `<div class="sidebar-header">
+    el.innerHTML = `<div class="sidebar-title" data-ref="repo-name"></div><div class="sidebar-header">
         <input class="sidebar-filter" placeholder="Filter" spellcheck="false" autocomplete="off" />
         <button class="header-button" data-view="tree" title="Group bookmarks into folders">${TREE_ICON}</button>
         <button class="header-button" data-view="flat" title="Show bookmarks as a flat list">${LIST_ICON}</button>
