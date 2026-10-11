@@ -156,16 +156,10 @@ pub fn layout<K: Eq + Hash + Clone>(nodes: &[NodeInput<K>], trunk: Option<&K>) -
             lanes.take(0);
             0
         } else {
-            let first_parent = incoming
-                .iter()
-                .filter(|(_, first)| *first)
-                .map(|&(edge, _)| layout.edges[edge].lane as usize)
-                .min();
-            let any = incoming
-                .iter()
-                .map(|&(edge, _)| layout.edges[edge].lane as usize)
-                .min();
-            match first_parent.or(any) {
+            // The leftmost incoming line keeps going; the others curve in. That
+            // keeps a merged branch's commits under the merge's line, with
+            // other children branching off them.
+            match incoming.iter().map(|&(edge, _)| layout.edges[edge].lane as usize).min() {
                 Some(lane) => lane,
                 None => lanes.alloc(min_lane),
             }
@@ -335,6 +329,20 @@ mod tests {
             node("p", &[]),
         ];
         assert_eq!(lanes(&super::layout(&nodes, None)), [0, 1, 0, 1, 0]);
+    }
+
+    #[test]
+    fn merged_branch_stays_under_the_merge_line() {
+        // m merges o into t; another branch tr also sits on o.
+        let nodes = [
+            node("m", &["t", "o"]),
+            node("tr", &["o"]),
+            node("o", &["t"]),
+            node("t", &[]),
+        ];
+        let layout = layout(&nodes, Some(&"m"));
+        // o continues the merge's lane (1); tr branches off it in lane 2.
+        assert_eq!(lanes(&layout), [0, 2, 1, 0]);
     }
 
     #[test]
