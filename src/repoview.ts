@@ -915,7 +915,7 @@ export class RepoView {
     } catch {
       // Edit the summary rather than nothing.
     }
-    const edited = await editText(`Describe ${row.changeId.slice(0, 8)}`, message, "⌥↩ or ⌘↩ to save");
+    const edited = await this.details.editDescription(row, message);
     if (edited === null || edited.trim() === message.trim()) return;
     this.act(`Describe ${row.changeId.slice(0, 8)}`, () => jj.describe(this.path, row.commitId, edited), { undo: true });
   }
@@ -1015,6 +1015,18 @@ export class RepoView {
   private select(index: number, reveal = true) {
     const log = this.log;
     if (!log || log.rows.length === 0) return;
+    // Moving off a commit whose message is being edited drops the edit, after asking if it changed.
+    if (this.details.editing && index !== this.selected) {
+      if (this.details.editDirty) {
+        confirm("Discard your changes to the commit message?", "Discard Changes", "Discard").then((ok) => {
+          if (!ok) return;
+          this.details.cancelEdit();
+          this.select(index, reveal);
+        });
+        return;
+      }
+      this.details.cancelEdit();
+    }
     const previous = this.selected;
     this.selected = Math.max(0, Math.min(log.rows.length - 1, index));
     if (this.selected !== previous) this.scheduleDetails();

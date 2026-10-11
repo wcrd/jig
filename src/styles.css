@@ -589,6 +589,10 @@ body.resizing-columns * {
   line-height: 1.35;
 }
 
+.ci-editor .prompt-buttons {
+  margin-top: 8px;
+}
+
 .ci-body {
   /* A comfortable reading width (~100 characters of prose). */
   max-width: 80ch;
@@ -1846,7 +1850,7 @@ dialog.prompt.editor {
   width: 560px;
 }
 
-dialog.prompt textarea {
+:is(dialog.prompt, .ci-editor) textarea {
   width: 100%;
   padding: 8px;
   border: 1px solid var(--border);
@@ -1860,7 +1864,7 @@ dialog.prompt textarea {
   -webkit-user-select: text;
 }
 
-dialog.prompt textarea:focus {
+:is(dialog.prompt, .ci-editor) textarea:focus {
   border-color: var(--commit-id);
 }
 

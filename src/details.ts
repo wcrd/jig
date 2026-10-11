@@ -128,6 +128,16 @@ export class DetailsPanel {
   /** Draws only the visible lines of large diffs and files. */
   private virtual: VirtualLines;
 
+  /** The commit message being edited in place of the shown one. */
+  private editor: {
+    changeId: string;
+    initial: string;
+    el: HTMLElement;
+    textarea: HTMLTextAreaElement;
+    returnTab: DetailsTab;
+    resolve: (value: string | null) => void;
+  } | null = null;
+
   constructor(
     private el: DetailsElements,
     private source: DetailsSource,
@@ -222,6 +232,7 @@ export class DetailsPanel {
   }
 
   clear(message = "") {
+    this.cancelEdit();
     this.row = null;
     this.diff = null;
     this.el.info.innerHTML = message ? `<div class="placeholder-text">${escapeHtml(message)}</div>` : "";
@@ -234,10 +245,11 @@ export class DetailsPanel {
   /** Shows the row's header straight away, before its diff has loaded. */
   showPending(row: LogRow) {
     if (this.row?.commitId === row.commitId && !this.compareFrom) return;
+    if (this.editor && this.editor.changeId !== row.changeId) this.cancelEdit();
     this.compareFrom = null;
     this.row = row;
     this.diff = null;
-    this.el.info.innerHTML = this.infoHtml(row, null);
+    this.renderInfo();
     this.updateContext();
     this.renderLeft();
     if (this.tab !== "tree") this.el.view.innerHTML = "";
@@ -246,11 +258,12 @@ export class DetailsPanel {
   show(row: LogRow, diff: CommitDiff) {
     const previousPath = this.diff?.files[this.fileIndex]?.path;
     if (this.split && this.row?.commitId !== row.commitId) this.split = new Map();
+    if (this.editor && this.editor.changeId !== row.changeId) this.cancelEdit();
     this.compareFrom = null;
     this.row = row;
     this.diff = diff;
     this.changesTree = buildTree(diff.files.map((f) => f.path));
-    this.el.info.innerHTML = this.infoHtml(row, diff);
+    this.renderInfo();
     this.updateContext();
     const found = previousPath ? diff.files.findIndex((f) => f.path === previousPath) : -1;
     this.fileIndex = found >= 0 ? found : 0;
@@ -263,6 +276,7 @@ export class DetailsPanel {
   }
 
   showPendingCompare(from: LogRow, to: LogRow) {
+    this.cancelEdit();
     this.compareFrom = from;
     this.row = to;
     this.diff = null;
@@ -278,6 +292,7 @@ export class DetailsPanel {
    * "to" commit as the new side.
    */
   showCompare(from: LogRow, to: LogRow, compare: CompareDiff) {
+    this.cancelEdit();
     const previousPath = this.diff?.files[this.fileIndex]?.path;
     this.conflictPath = null;
     this.compareFrom = from;
@@ -927,6 +942,74 @@ export class DetailsPanel {
     this.el.view.scrollTop = 0;
   }
 
+  get editing(): boolean {
+    return this.editor !== null;
+  }
+
+  /** Whether the message being edited differs from where it started. */
+  get editDirty(): boolean {
+    return this.editor !== null && this.editor.textarea.value !== this.editor.initial;
+  }
+
+  /**
+   * Edits the shown commit's message in place, on the Commit tab, so the
+   * details stay in view; resolves to null if cancelled.
+   */
+  editDescription(row: LogRow, initial: string): Promise<string | null> {
+    this.cancelEdit();
+    const el = document.createElement("div");
+    el.className = "ci-editor";
+    el.innerHTML = `<textarea spellcheck="true" rows="8"></textarea>
+      <div class="prompt-buttons"><span class="muted prompt-hint">⌥↩ or ⌘↩ to save · Esc to cancel</span><button data-edit="cancel">Cancel</button><button data-edit="save" class="primary">Save</button></div>`;
+    const textarea = el.querySelector("textarea")!;
+    textarea.value = initial;
+    // Save with ⌘↩, or jjui's ⌥↩ / ⌃S; ⌃X clears, as in jjui.
+    textarea.addEventListener("keydown", (event) => {
+      const save =
+        (event.key === "Enter" && (event.metaKey || event.ctrlKey || event.altKey)) ||
+        (event.ctrlKey && event.key.toLowerCase() === "s");
+      if (save || event.key === "Escape") {
+        event.preventDefault();
+        // Keep the key from also reaching the graph once the editor closes.
+        event.stopPropagation();
+        this.finishEdit(save ? textarea.value : null);
+      } else if (event.ctrlKey && event.key.toLowerCase() === "x") {
+        event.preventDefault();
+        textarea.value = "";
+      }
+    });
+    el.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLElement>("[data-edit]");
+      if (button) this.finishEdit(button.dataset.edit === "save" ? textarea.value : null);
+    });
+    return new Promise((resolve) => {
+      this.editor = { changeId: row.changeId, initial, el, textarea, returnTab: this.tab, resolve };
+      this.setTab("commit");
+      this.renderInfo();
+      textarea.focus();
+      textarea.setSelectionRange(0, 0);
+    });
+  }
+
+  cancelEdit() {
+    if (this.editor) this.finishEdit(null);
+  }
+
+  private finishEdit(value: string | null) {
+    const editor = this.editor!;
+    this.editor = null;
+    if (this.row && !this.compareFrom) this.renderInfo();
+    if (this.tab === "commit") this.setTab(editor.returnTab);
+    if (editor.el.contains(document.activeElement)) (document.activeElement as HTMLElement).blur();
+    editor.resolve(value);
+  }
+
+  /** The commit header, with the message editor in place of the message while editing. */
+  private renderInfo() {
+    this.el.info.innerHTML = this.infoHtml(this.row!, this.diff);
+    if (this.editor) this.el.info.querySelector(".ci-message")?.replaceWith(this.editor.el);
+  }
+
   private infoHtml(row: LogRow, diff: CommitDiff | null): string {
     const description = diff?.description ?? row.summary;
     const [summary, ...rest] = description.split("\n");
@@ -934,10 +1017,12 @@ export class DetailsPanel {
     const author = diff?.author ?? { name: row.authorName, email: row.authorEmail, timestamp: row.timestamp };
     const committer = diff?.committer;
 
-    let html = summary
+    let html = `<div class="ci-message">`;
+    html += summary
       ? `<div class="ci-summary">${escapeHtml(summary)}</div>`
       : `<div class="ci-summary placeholder">(no description set)</div>`;
     if (body) html += `<div class="ci-body">${escapeHtml(reflowMessage(body))}</div>`;
+    html += `</div>`;
 
     html += `<div class="ci-person">${avatarHtml(author.name, author.email, "large")}
       <div><div><b>${escapeHtml(author.name)}</b>${agentBadge(author.name, author.email)} <span class="muted">&lt;${escapeHtml(author.email)}&gt;</span></div>
