@@ -2,7 +2,7 @@
 // author, change ID, commit ID and date columns.
 
 import { avatarHue, escapeHtml, formatDate, formatFullDate, initials, splitConventional } from "./format";
-import { ROW_HEIGHT, laneColor, textX, type Palette } from "./graph";
+import { ROW_HEIGHT, laneColor, textX, type Graph } from "./graph";
 import type { LogRow, RefLabel } from "./types";
 
 const CLOUD_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.7.9A2.6 2.6 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
@@ -52,9 +52,9 @@ function idHtml(id: string, prefixLen: number, kind: string): string {
   return `<span class="id ${kind}"><b>${id.slice(0, prefixLen)}</b>${id.slice(prefixLen, shown)}</span>`;
 }
 
-export function renderRow(el: HTMLElement, row: LogRow, index: number, palette: Palette) {
-  const color = laneColor(palette, row.lane);
-  el.style.transform = `translateY(${index * ROW_HEIGHT}px)`;
+export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Graph) {
+  const color = laneColor(row.lane);
+  el.style.top = `${index * ROW_HEIGHT}px`;
   el.classList.toggle("dim", !row.inWcHistory);
   el.classList.toggle("wc", row.isWorkingCopy);
 
@@ -79,6 +79,7 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, palette: 
   const body = row.hasBody ? `<span class="more" title="Has a longer description">↩</span>` : "";
 
   el.innerHTML =
+    graph.rowSvg(index) +
     `<div class="desc" style="padding-left:${textX(row.width)}px">${pills}` +
     `<span class="summary">${empty}${summary}</span>${body}</div>` +
     `<div class="author" title="${escapeHtml(`${row.authorName} <${row.authorEmail}>`)}">` +

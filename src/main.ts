@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { DetailsPanel } from "./details";
-import { ROW_HEIGHT, drawGraph, readPalette, type Palette } from "./graph";
+import { Graph, ROW_HEIGHT } from "./graph";
 import { renderRow } from "./rows";
 import type { CommitDiff, LogResponse } from "./types";
 
@@ -17,7 +17,6 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const list = $<HTMLElement>("list");
 const scroller = $<HTMLDivElement>("scroller");
 const spacer = $<HTMLDivElement>("spacer");
-const canvas = $<HTMLCanvasElement>("graph");
 const repoName = $<HTMLSpanElement>("repo-name");
 const revsetInput = $<HTMLInputElement>("revset-input");
 const revsetPreset = $<HTMLSelectElement>("revset-preset");
@@ -30,7 +29,7 @@ let repoPath: string | null = null;
 let revset = "";
 let log: LogResponse | null = null;
 let selected = -1;
-let palette: Palette = readPalette();
+let graph: Graph | null = null;
 const rendered = new Map<number, HTMLElement>();
 let loading = false;
 
@@ -117,6 +116,7 @@ async function load({ keepPosition = false } = {}) {
     const next = await fetchLog(repoPath, revset);
     errorEl.hidden = true;
     log = next;
+    graph = new Graph(next.rows, next.edges);
     repoName.textContent = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
     document.title = `${repoName.textContent} — Jork`;
     revsetInput.placeholder = next.defaultRevset;
@@ -155,10 +155,7 @@ function render() {
 
 function renderNow() {
   emptyEl.hidden = !!repoPath;
-  if (!log) {
-    canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
-    return;
-  }
+  if (!log || !graph) return;
   const top = scroller.scrollTop;
   const height = scroller.clientHeight;
   const first = Math.max(0, Math.floor(top / ROW_HEIGHT) - OVERSCAN);
@@ -176,18 +173,19 @@ function renderNow() {
       el = document.createElement("div");
       el.className = "row";
       el.dataset.index = String(i);
-      renderRow(el, log.rows[i], i, palette);
+      renderRow(el, log.rows[i], i, graph);
       spacer.appendChild(el);
       rendered.set(i, el);
     }
     el.classList.toggle("selected", i === selected);
   }
 
-  drawGraph(canvas, log.rows, log.edges, palette, {
-    scrollTop: top,
-    width: scroller.clientWidth,
-    height,
-  });
+}
+
+function rerenderRows() {
+  for (const el of rendered.values()) el.remove();
+  rendered.clear();
+  render();
 }
 
 function select(index: number, reveal = true) {
@@ -249,12 +247,20 @@ async function pollForChanges() {
 
 scroller.addEventListener("scroll", render, { passive: true });
 new ResizeObserver(render).observe(list);
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
-  palette = readPalette();
-  for (const el of rendered.values()) el.remove();
-  rendered.clear();
-  render();
-});
+// Line widths are chosen per device pixel ratio, so rebuild when it changes.
+function watchDpr() {
+  const query = window.matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`);
+  query.addEventListener(
+    "change",
+    () => {
+      graph?.setDpr(window.devicePixelRatio);
+      rerenderRows();
+      watchDpr();
+    },
+    { once: true },
+  );
+}
+watchDpr();
 
 spacer.addEventListener("mousedown", (event) => {
   const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
