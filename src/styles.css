@@ -532,7 +532,7 @@ body.resizing-columns * {
 .detail-tabs {
   flex: none;
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 2px;
   padding: 5px;
   background: var(--toolbar-bg);
@@ -1005,7 +1005,7 @@ body.resizing-columns * {
   max-height: 60%;
 }
 
-.details-body.commit-mode #split-info,
+.details-body.commit-mode [data-ref="split-info"],
 .details-body.commit-mode .diff-view {
   display: none;
 }
@@ -1084,4 +1084,119 @@ body.resizing-columns * {
 
 .hljs-strong {
   font-weight: 600;
+}
+
+/* Repository tabs */
+
+.repo-tabs {
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 32px;
+  background: color-mix(in srgb, var(--toolbar-bg) 82%, var(--text) 8%);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab-list {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tab {
+  flex: 0 1 200px;
+  min-width: 90px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px 0 12px;
+  border-right: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: var(--text);
+}
+
+.tab.active {
+  background: var(--toolbar-bg);
+  color: var(--text);
+  font-weight: 600;
+  /* Merge into the toolbar below. */
+  margin-bottom: -1px;
+  border-bottom: 1px solid var(--toolbar-bg);
+}
+
+.tab-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-hint {
+  color: var(--muted);
+  font-weight: normal;
+}
+
+.tab-close {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  visibility: hidden;
+}
+
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  visibility: visible;
+}
+
+.tab-close:hover {
+  background: var(--selected);
+  color: var(--text);
+}
+
+.new-tab {
+  flex: none;
+  width: 32px;
+  border: none;
+  background: none;
+  color: var(--muted);
+}
+
+.new-tab:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+.views {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.repo-view {
+  flex: 1;
+  min-width: 0;
+  display: none;
+  flex-direction: column;
+}
+
+.repo-view.active {
+  display: flex;
+}
+
+/* Below the tab strip. */
+body > .empty {
+  top: 33px;
 }

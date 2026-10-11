@@ -8,53 +8,62 @@
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <header class="toolbar">
-      <button id="open-repo" class="repo-button" title="Open repository (⌘O)">
-        <span id="repo-name">Open…</span>
+    <nav id="repo-tabs" class="repo-tabs">
+      <div id="tab-list" class="tab-list"></div>
+      <button id="new-tab" class="new-tab" title="Open repository in a new tab (⌘T)">
+        <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
       </button>
-      <div class="revset">
-        <select id="revset-preset" title="Revset presets">
-          <option value="">Default</option>
-          <option value="all()">All</option>
-          <option value="trunk() | bookmarks() | remote_bookmarks() | tags() | @ | ::@ ~ ::trunk()">Bookmarks</option>
-          <option value="mine()">Mine</option>
-          <option value="custom" hidden>Custom</option>
-        </select>
-        <input id="revset-input" spellcheck="false" autocomplete="off" placeholder="revset" title="Revset (⌘L)" />
-      </div>
-      <button id="refresh" class="icon-button" title="Reload (⌘R)">
-        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      </button>
-      <div id="status" class="toolbar-status"></div>
-    </header>
-    <div id="error" class="error" hidden></div>
-    <div class="workspace">
-      <main id="list" class="list">
-        <div id="scroller" class="scroller">
-          <div id="spacer" class="spacer"></div>
-        </div>
-        <div id="empty" class="empty" hidden>
-          <p>Open a jj repository to see its graph.</p>
-          <button id="empty-open">Open Repository…</button>
-        </div>
-      </main>
-      <div id="split-details" class="splitter rows" title="Drag to resize"></div>
-      <section id="details" class="details">
-        <nav id="detail-tabs" class="detail-tabs">
-          <button data-tab="commit">Commit</button>
-          <button data-tab="changes">Changes</button>
-          <button data-tab="tree">File Tree</button>
-        </nav>
-        <div class="details-body">
-        <div id="info-pane" class="info-pane">
-          <div id="commit-info" class="commit-info"></div>
-          <div id="file-header" class="file-header"></div>
-          <div id="file-list" class="file-list"></div>
-        </div>
-        <div id="split-info" class="splitter columns" title="Drag to resize"></div>
-        <div id="diff-view" class="diff-view"></div>
-        </div>
-      </section>
+    </nav>
+    <div id="views" class="views"></div>
+    <div id="empty" class="empty" hidden>
+      <p>Open a jj repository to see its graph.</p>
+      <button id="empty-open">Open Repository…</button>
     </div>
+
+    <template id="repo-template">
+      <div class="repo-view">
+        <header class="toolbar">
+          <div class="revset">
+            <select data-ref="revset-preset" title="Revset presets">
+              <option value="">Default</option>
+              <option value="all()">All</option>
+              <option value="trunk() | bookmarks() | remote_bookmarks() | tags() | @ | ::@ ~ ::trunk()">Bookmarks</option>
+              <option value="mine()">Mine</option>
+              <option value="custom" hidden>Custom</option>
+            </select>
+            <input data-ref="revset-input" spellcheck="false" autocomplete="off" placeholder="revset" title="Revset (⌘L)" />
+          </div>
+          <button data-ref="refresh" class="icon-button" title="Reload (⌘R)">
+            <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div data-ref="status" class="toolbar-status"></div>
+        </header>
+        <div data-ref="error" class="error" hidden></div>
+        <div class="workspace">
+          <main data-ref="list" class="list">
+            <div data-ref="scroller" class="scroller">
+              <div data-ref="spacer" class="spacer"></div>
+            </div>
+          </main>
+          <div data-ref="split-details" class="splitter rows" title="Drag to resize"></div>
+          <section data-ref="details" class="details">
+            <nav data-ref="detail-tabs" class="detail-tabs">
+              <button data-tab="commit">Commit</button>
+              <button data-tab="changes">Changes</button>
+              <button data-tab="tree">File Tree</button>
+            </nav>
+            <div data-ref="details-body" class="details-body">
+              <div data-ref="info-pane" class="info-pane">
+                <div data-ref="commit-info" class="commit-info"></div>
+                <div data-ref="file-header" class="file-header"></div>
+                <div data-ref="file-list" class="file-list"></div>
+              </div>
+              <div data-ref="split-info" class="splitter columns" title="Drag to resize"></div>
+              <div data-ref="diff-view" class="diff-view"></div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </template>
   </body>
 </html>
