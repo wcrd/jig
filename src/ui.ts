@@ -153,3 +153,80 @@ export function editText(title: string, initial: string, hint = ""): Promise<str
     textarea.setSelectionRange(0, 0);
   });
 }
+
+const HELP: [string, [string, string][]][] = [
+  [
+    "Commits",
+    [
+      ["↑ ↓  j k", "Move"],
+      ["⇧J  ⇧K", "Parent / child"],
+      ["@", "Working copy"],
+      ["n", "New change"],
+      ["e", "Edit"],
+      ["↩  ⇧D", "Describe"],
+      ["d", "Show changes"],
+      ["r", "Rebase"],
+      ["⇧S", "Squash"],
+      ["s", "Split"],
+      ["a", "Abandon"],
+      ["y", "Duplicate"],
+      ["⇧A", "Absorb"],
+      ["⇧B", "Set bookmark"],
+      ["b", "Find bookmark"],
+      ["⌘-click", "Compare"],
+    ],
+  ],
+  [
+    "Rebase",
+    [
+      ["r / s / ⇧B", "This commit / with descendants / branch"],
+      ["o / a / b", "Onto / after / before"],
+      ["↑ ↓  @", "Choose destination"],
+      ["↩  Esc", "Rebase / cancel"],
+    ],
+  ],
+  [
+    "Abandon",
+    [
+      ["Space", "Mark"],
+      ["s", "Mark descendants"],
+      ["↩  Esc", "Abandon / cancel"],
+    ],
+  ],
+  [
+    "Repository",
+    [
+      ["u  ⇧U", "Undo / redo"],
+      ["o", "Operation log"],
+      ["g", "Fetch / push"],
+      ["⇧L  ⌘L", "Revset"],
+      ["⌘R", "Reload"],
+      ["⌥↑ ⌥↓", "Previous / next file"],
+      ["⌘T  ⌘W", "Open / close tab"],
+      ["⌘1–9", "Switch tab"],
+      ["?", "This help"],
+    ],
+  ],
+];
+
+/** A cheat sheet of the keyboard shortcuts. */
+export function showHelp() {
+  const dialog = document.createElement("dialog");
+  dialog.className = "prompt help";
+  dialog.innerHTML =
+    `<div class="prompt-title">Keyboard Shortcuts <span class="muted">(the same as jjui)</span></div><div class="help-grid">` +
+    HELP.map(
+      ([title, keys]) =>
+        `<div class="help-section"><div class="list-section">${title}</div>` +
+        keys.map(([key, what]) => `<div class="help-row"><kbd>${escapeHtml(key)}</kbd><span>${escapeHtml(what)}</span></div>`).join("") +
+        `</div>`,
+    ).join("") +
+    `</div><div class="prompt-buttons"><button class="primary" autofocus>Done</button></div>`;
+  document.body.appendChild(dialog);
+  dialog.querySelector("button")!.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("close", () => dialog.remove());
+  dialog.addEventListener("click", (event) => {
+    if (event.target === dialog) dialog.close();
+  });
+  dialog.showModal();
+}

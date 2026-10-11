@@ -2572,3 +2572,32 @@ dialog.prompt textarea:focus {
   flex: 0 1 auto;
   min-width: 80px;
 }
+
+dialog.prompt.help {
+  width: 640px;
+}
+
+.help-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 24px;
+}
+
+.help-section .list-section {
+  padding-left: 0;
+}
+
+.help-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 22px;
+  font-size: 12.5px;
+}
+
+.help-row kbd {
+  flex: none;
+  min-width: 78px;
+  font: 11.5px ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--commit-id);
+}

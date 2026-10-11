@@ -98,6 +98,8 @@ export class OpLogPanel {
     if (!this.visible) return;
     try {
       this.ops = await fetchOpLog(this.path);
+      // Start on the newest operation so the details pane isn't empty.
+      if (!this.selected || !this.ops.some((op) => op.id === this.selected)) this.selected = this.ops[0]?.id ?? null;
     } catch (err) {
       this.list.innerHTML = `<div class="placeholder-text error-text">${escapeHtml(String(err))}</div>`;
       return;
@@ -239,18 +241,50 @@ const NOISE_WITH_VALUE = new Set(["--color", "-R", "--repository", "--config", "
 export function displayCommand(args: string): string {
   const firstLine = args.split("\n")[0];
   const more = args.includes("\n") ? " …" : "";
-  const words = firstLine.split(" ");
+  const words = shellWords(firstLine);
   const kept: string[] = [];
   for (let i = 0; i < words.length; i++) {
-    const word = words[i];
-    const flag = word.split("=")[0];
-    if (NOISE_FLAGS.has(word)) continue;
+    const { raw, value } = words[i];
+    const flag = value.split("=")[0];
+    if (NOISE_FLAGS.has(value)) continue;
     if (NOISE_WITH_VALUE.has(flag)) {
       // Skip the value too, unless it was attached with "=".
-      if (!word.includes("=")) i++;
+      if (!value.includes("=")) i++;
       continue;
     }
-    kept.push(word);
+    kept.push(raw);
   }
   return kept.join(" ") + more;
+}
+
+/**
+ * Splits a shell-quoted command line (jj records `--config 'user.name=A B'`)
+ * into words, keeping each word's original text for display.
+ */
+function shellWords(line: string): { raw: string; value: string }[] {
+  const words: { raw: string; value: string }[] = [];
+  let i = 0;
+  while (i < line.length) {
+    while (line[i] === " ") i++;
+    if (i >= line.length) break;
+    const start = i;
+    let value = "";
+    while (i < line.length && line[i] !== " ") {
+      const c = line[i];
+      if (c === "'" || c === '"') {
+        const end = line.indexOf(c, i + 1);
+        const close = end < 0 ? line.length : end;
+        value += line.slice(i + 1, close);
+        i = close + 1;
+      } else if (c === "\\" && i + 1 < line.length) {
+        value += line[i + 1];
+        i += 2;
+      } else {
+        value += c;
+        i++;
+      }
+    }
+    words.push({ raw: line.slice(start, i), value });
+  }
+  return words;
 }

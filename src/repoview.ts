@@ -11,7 +11,7 @@ import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
 import { escapeHtml } from "./format";
-import { type MenuEntry, confirm, copy, editText, prompt, runWithToast, showMenu } from "./ui";
+import { type MenuEntry, confirm, copy, editText, prompt, runWithToast, showHelp, showMenu } from "./ui";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
 const OVERSCAN = 8;
@@ -310,8 +310,8 @@ export class RepoView {
     if (focused?.closest("input, textarea, select, [contenteditable]") || !this.log) return false;
     if (event.metaKey || event.ctrlKey) return false;
     if (this.oplog.visible) {
-      if (event.key === "Escape") this.oplog.hide();
-      return event.key === "Escape";
+      if (event.key === "Escape" || event.key === "o") this.oplog.hide();
+      return event.key === "Escape" || event.key === "o";
     }
     // The resolver owns the keyboard: n / p move between conflicts.
     if (this.resolver.visible) {
@@ -329,7 +329,9 @@ export class RepoView {
     const page = Math.max(1, Math.floor(this.scroller.clientHeight / ROW_HEIGHT) - 1);
     const moves: Record<string, number> = {
       ArrowDown: this.selected + 1,
+      j: this.selected + 1,
       ArrowUp: this.selected - 1,
+      k: this.selected - 1,
       PageDown: this.selected + page,
       PageUp: this.selected - page,
       Home: 0,
@@ -345,18 +347,52 @@ export class RepoView {
   }
 
   /** Single-key commands on the selected commit, as in jjui. */
+  /**
+   * Single-key commands, using jjui's default bindings so the muscle memory
+   * carries over.
+   */
   private handleCommandKey(event: KeyboardEvent): boolean {
-    if (event.altKey || this.selected < 0) return false;
-    const row = this.log!.rows[this.selected];
+    if (event.altKey) return false;
+    const rows = this.log!.rows;
+    // Commands that don't need a selected commit.
     switch (event.key) {
-      case "b": // rebase this commit; ⇧B with its descendants
-      case "B":
-        this.startRebase(this.selected, event.shiftKey ? "source" : "revision");
+      case "u":
+        this.act("Undo", () => jj.undo(this.path));
         return true;
-      case "s":
-        this.startSquash(this.selected);
+      case "U":
+        this.act("Redo", () => jj.redo(this.path));
+        return true;
+      case "o":
+        this.oplog.toggle();
+        return true;
+      case "g":
+        showMenu([
+          { text: "Fetch", action: () => this.act("Fetch", () => jj.gitFetch(this.path)) },
+          { text: "Push", action: () => this.act("Push", () => jj.gitPush(this.path)) },
+        ]);
+        return true;
+      case "L":
+        this.focusRevset();
+        return true;
+      case "?":
+        showHelp();
+        return true;
+      case "@": {
+        const wc = rows.findIndex((r) => r.isWorkingCopy);
+        if (wc >= 0) this.select(wc);
+        return true;
+      }
+    }
+    if (this.selected < 0) return false;
+    const row = rows[this.selected];
+    switch (event.key) {
+      case "r":
+        this.startRebase(this.selected, "revision");
         return true;
       case "S":
+        this.startSquash(this.selected);
+        return true;
+      case "s":
         this.startSplit(this.selected);
         return true;
       case "a":
@@ -368,11 +404,49 @@ export class RepoView {
       case "e":
         this.editCommit(row);
         return true;
-      case "d":
+      case "Enter":
+      case "D":
         this.describe(row);
         return true;
+      case "d":
+        this.details.setTab("changes");
+        return true;
+      case "y":
+        this.act(`Duplicate ${row.changeId.slice(0, 8)}`, () => jj.duplicate(this.path, [row.commitId]), { undo: true });
+        return true;
+      case "A":
+        this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true });
+        return true;
+      case "B":
+        this.setBookmark(row);
+        return true;
+      case "b":
+        this.ref<HTMLInputElement>("sidebar").querySelector<HTMLInputElement>(".sidebar-filter")?.focus();
+        return true;
+      case "J": {
+        const parent = this.relations?.parentsOf(this.selected)[0];
+        if (parent !== undefined) this.select(parent);
+        return true;
+      }
+      case "K": {
+        const child = this.relations ? [...this.relations.descendants([this.selected])].filter((r) => r !== this.selected).sort((x, y) => y - x)[0] : undefined;
+        if (child !== undefined) this.select(child);
+        return true;
+      }
     }
     return false;
+  }
+
+  /** ⇧B: point a bookmark at the commit, creating it or moving it there. */
+  private async setBookmark(row: LogRow) {
+    const name = await prompt("Set Bookmark", `Create or move a bookmark to ${row.changeId.slice(0, 8)}`, "", "name");
+    if (!name) return;
+    const exists = this.localBookmarks().includes(name);
+    this.act(
+      `${exists ? "Move" : "Create"} bookmark ${name}`,
+      () => (exists ? jj.bookmarkSet(this.path, name, row.commitId) : jj.bookmarkCreate(this.path, name, row.commitId)),
+      { undo: true },
+    );
   }
 
   private startRebase(source: number, mode: RebaseMode, target?: number) {
@@ -480,16 +554,35 @@ export class RepoView {
     return null;
   }
 
+  /** Keys inside a mode, following jjui's bindings for the same modes. */
   private handlePendingKey(event: KeyboardEvent): boolean {
     const p = this.pending!;
+    const rows = this.log!.rows;
     const page = Math.max(1, Math.floor(this.scroller.clientHeight / ROW_HEIGHT) - 1);
-    // Arrows move the destination, or for abandon the cursor.
-    const delta: Record<string, number> = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1, PageDown: page, PageUp: -page };
-    if (event.key in delta) {
-      // Splitting keeps the commit fixed; arrows step through its files.
-      if (p.kind === "split") this.details.moveFile(Math.sign(delta[event.key]));
-      else if (p.kind === "abandon") this.select(this.selected + delta[event.key]);
-      else this.setTarget(p.target + delta[event.key]);
+    const move = (to: number) => {
+      // Splitting keeps the commit fixed; the arrows step through its files.
+      if (p.kind === "split") this.details.moveFile(Math.sign(to - this.selected) as 1 | -1);
+      else if (p.kind === "abandon") this.select(to);
+      else this.setTarget(to);
+    };
+    const current = p.kind === "rebase" || p.kind === "squash" ? p.target : this.selected;
+    const moves: Record<string, number> = {
+      ArrowDown: current + 1,
+      j: current + 1,
+      ArrowUp: current - 1,
+      k: current - 1,
+      PageDown: current + page,
+      PageUp: current - page,
+      Home: 0,
+      End: rows.length - 1,
+    };
+    if (event.key in moves) {
+      move(moves[event.key]);
+      return true;
+    }
+    if (event.key === "@" && p.kind !== "split") {
+      const wc = rows.findIndex((r) => r.isWorkingCopy);
+      if (wc >= 0) move(wc);
       return true;
     }
     if (event.key === "Enter") {
@@ -500,13 +593,18 @@ export class RepoView {
       this.cancelPending();
       return true;
     }
-    if (p.kind === "abandon" && (event.key === " " || event.key === "a")) {
-      this.toggleMark(this.selected);
-      return true;
+    if (p.kind === "abandon") {
+      if (event.key === " ") this.toggleMark(this.selected);
+      else if (event.key === "s") {
+        // Mark the selected commit's descendants too.
+        for (const r of this.relations!.descendants([this.selected])) p.marked.add(r);
+        this.updatePending();
+      }
+      return event.key.length === 1;
     }
     if (p.kind === "rebase") {
-      const modes: Record<string, RebaseMode> = { b: "revision", B: "source", w: "branch" };
-      const placements: Record<string, Placement> = { o: "onto", a: "after", A: "before" };
+      const modes: Record<string, RebaseMode> = { r: "revision", s: "source", B: "branch" };
+      const placements: Record<string, Placement> = { o: "onto", a: "after", b: "before" };
       if (event.key in modes) p.mode = modes[event.key];
       else if (event.key in placements) p.placement = placements[event.key];
       else return event.key.length === 1;
@@ -543,13 +641,13 @@ export class RepoView {
       const count = this.movingRows().size;
       body =
         `<span class="modebar-title">Rebase</span><span class="segmented">` +
-        segment("mode", "revision", p.mode, MODE_LABELS.revision, "b") +
-        segment("mode", "source", p.mode, MODE_LABELS.source, "⇧B") +
-        segment("mode", "branch", p.mode, MODE_LABELS.branch, "w") +
+        segment("mode", "revision", p.mode, MODE_LABELS.revision, "r") +
+        segment("mode", "source", p.mode, MODE_LABELS.source, "s") +
+        segment("mode", "branch", p.mode, MODE_LABELS.branch, "⇧B") +
         `</span>${id(p.source)}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}<span class="segmented">` +
         segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
         segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
-        segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "⇧A") +
+        segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "b") +
         `</span>${id(p.target)} ${summary(p.target)}`;
       action = "Rebase";
       hint = "↑↓ choose · Enter · Esc";
@@ -570,7 +668,7 @@ export class RepoView {
       const count = p.marked.size;
       body = `<span class="modebar-title">Abandon</span><span>${count} ${count === 1 ? "commit" : "commits"} marked</span>`;
       action = "Abandon";
-      hint = "Space mark · Enter · Esc";
+      hint = "Space mark · s descendants · Enter · Esc";
     }
     this.modebar.hidden = false;
     this.modebar.className = `modebar ${p.kind}`;
