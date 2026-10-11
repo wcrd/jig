@@ -132,6 +132,8 @@ export interface CommitDiff {
   committer: Person;
   parents: ParentInfo[];
   files: FileDiff[];
+  /** Paths with unresolved conflicts in the commit's contents. */
+  conflicts: string[];
 }
 
 export interface FileText {

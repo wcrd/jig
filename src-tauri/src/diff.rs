@@ -50,6 +50,9 @@ pub struct CommitDiff {
     pub committer: Person,
     pub parents: Vec<ParentInfo>,
     pub files: Vec<FileDiff>,
+    /// Paths with unresolved conflicts in the commit's contents. A merge can
+    /// be conflicted without changing anything relative to its parents.
+    pub conflicts: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -183,6 +186,11 @@ pub async fn commit_diff(
         committer: person(commit.committer()),
         parents,
         files,
+        conflicts: commit
+            .tree()
+            .conflicts()
+            .map(|(path, _)| path.as_internal_file_string().to_owned())
+            .collect(),
     })
 }
 

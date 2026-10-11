@@ -81,6 +81,8 @@ export class DetailsPanel {
 
   // Changed files.
   private fileIndex = 0;
+  /** A conflicted file being viewed instead of a diff. */
+  private conflictPath: string | null = null;
   private fileOrder: number[] = [];
   private changesCollapsed = new Set<string>();
   private changesTree: TreeNode | null = null;
@@ -149,6 +151,16 @@ export class DetailsPanel {
         this.toggleFolder(folder.dataset.folder!);
         return;
       }
+      const conflict = target.closest<HTMLElement>("[data-conflict]");
+      if (conflict) {
+        this.conflictPath = conflict.dataset.conflict!;
+        if (this.tab === "commit") this.setTab("changes");
+        else {
+          this.renderLeft();
+          this.renderRight();
+        }
+        return;
+      }
       const file = target.closest<HTMLElement>("[data-index]");
       if (file) this.selectItem(Number(file.dataset.index));
     });
@@ -210,6 +222,8 @@ export class DetailsPanel {
     this.updateContext();
     const found = previousPath ? diff.files.findIndex((f) => f.path === previousPath) : -1;
     this.fileIndex = found >= 0 ? found : 0;
+    // With nothing changed but conflicts present, show the first conflict.
+    this.conflictPath = diff.files.length === 0 && diff.conflicts.length > 0 ? diff.conflicts[0] : null;
     this.renderLeft();
     this.renderRight();
   }
@@ -231,6 +245,7 @@ export class DetailsPanel {
    */
   showCompare(from: LogRow, to: LogRow, compare: CompareDiff) {
     const previousPath = this.diff?.files[this.fileIndex]?.path;
+    this.conflictPath = null;
     this.compareFrom = from;
     this.row = to;
     this.diff = {
@@ -241,6 +256,7 @@ export class DetailsPanel {
       committer: { name: to.authorName, email: to.authorEmail, timestamp: to.timestamp },
       parents: [],
       files: compare.files,
+      conflicts: [],
     };
     this.changesTree = buildTree(compare.files.map((f) => f.path));
     this.el.info.innerHTML = this.compareInfoHtml(from, to);
@@ -421,6 +437,12 @@ export class DetailsPanel {
       (files.length ? `<span class="stats"><span class="add">+${additions}</span> <span class="del">−${deletions}</span></span>` : "") +
       `<span class="header-buttons">${toggle("list", LIST_ICON, "Show as list")}${toggle("tree", TREE_ICON, "Show as tree")}</span>`;
 
+    const conflicts = this.compareFrom ? "" : this.conflictsHtml(diff.conflicts);
+    if (files.length === 0 && conflicts) {
+      this.el.fileList.innerHTML = conflicts + `<div class="placeholder-text">No changes beyond its parents</div>`;
+      this.fileOrder = [];
+      return;
+    }
     if (files.length === 0) {
       // jj diffs a merge against its auto-merged parents, so a clean merge
       // has no changes of its own.
@@ -440,10 +462,10 @@ export class DetailsPanel {
         selected: this.fileIndex,
         fileHtml: (i, node) => this.changedFileHtml(files[i], node.name, ""),
       });
-      this.el.fileList.innerHTML = html;
+      this.el.fileList.innerHTML = conflicts + (conflicts ? `<div class="list-section">Changes</div>` : "") + html;
       this.fileOrder = order;
     } else {
-      this.el.fileList.innerHTML = files
+      this.el.fileList.innerHTML = conflicts + (conflicts ? `<div class="list-section">Changes</div>` : "") + files
         .map((file, i) => {
           const slash = file.path.lastIndexOf("/");
           const name = file.path.slice(slash + 1);
@@ -453,6 +475,21 @@ export class DetailsPanel {
         .join("");
       this.fileOrder = files.map((_, i) => i);
     }
+  }
+
+  private conflictsHtml(paths: string[]): string {
+    if (paths.length === 0) return "";
+    return (
+      `<div class="list-section conflicts">Unresolved conflicts</div>` +
+      paths
+        .map((path) => {
+          const slash = path.lastIndexOf("/");
+          const selected = path === this.conflictPath ? " selected" : "";
+          return `<div class="tree-row file${selected}" data-conflict="${escapeHtml(path)}" title="${escapeHtml(path)}">
+            <span class="status modified conflict">!</span><span class="path"><span class="name">${escapeHtml(path.slice(slash + 1))}</span>${slash >= 0 ? `<span class="dir">${escapeHtml(path.slice(0, slash + 1))}</span>` : ""}</span></div>`;
+        })
+        .join("")
+    );
   }
 
   private changedFileHtml(file: FileDiff, name: string, dir: string): string {
@@ -550,8 +587,12 @@ export class DetailsPanel {
       this.setTab("changes");
       return;
     } else {
-      if (!this.diff || index === this.fileIndex) return;
+      if (!this.diff || (index === this.fileIndex && !this.conflictPath)) return;
       this.fileIndex = index;
+      if (this.conflictPath) {
+        this.conflictPath = null;
+        this.renderLeft();
+      }
     }
     for (const el of this.el.fileList.querySelectorAll<HTMLElement>(".tree-row.file")) {
       el.classList.toggle("selected", Number(el.dataset.index) === index);
@@ -565,6 +606,7 @@ export class DetailsPanel {
   private renderRight() {
     if (this.tab === "commit") return;
     if (this.tab === "tree") this.renderTreeFile();
+    else if (this.conflictPath) this.renderConflict(this.conflictPath);
     else this.renderDiff(true);
   }
 
@@ -659,6 +701,36 @@ export class DetailsPanel {
     if (this.diff !== diff || this.fileIndex !== index || this.tab === "tree") return;
     this.renderLeft();
     this.renderDiff(true);
+  }
+
+  /** A conflicted file, with jj's conflict markers highlighted. */
+  private async renderConflict(path: string) {
+    const row = this.row;
+    this.virtual.unmount();
+    const header =
+      `<div class="diff-header"><span class="status modified conflict">!</span><span class="diff-path">${escapeHtml(path)}</span>` +
+      `<span class="pill flag conflict"><span class="label">unresolved conflict</span></span></div>`;
+    this.el.view.innerHTML = header + `<div class="placeholder-text">Loading…</div>`;
+    let text: FileText;
+    try {
+      text = await this.text(path);
+    } catch (err) {
+      this.showError(String(err));
+      return;
+    }
+    if (this.conflictPath !== path || this.row !== row) return;
+    this.el.view.innerHTML = header + `<div class="diff-body"></div>`;
+    if (text.text == null) {
+      this.showLines({ placeholder: text.binary ? "Binary file conflict" : "Not a regular file" });
+      return;
+    }
+    const lines = splitLines(text.text);
+    const set = fileLines(lines, highlightCached(text, text.text, languageFor(path)));
+    // Marker lines (<<<<<<<, %%%%%%%, +++++++, >>>>>>> …) stand out.
+    const marker = /^(<{7}|>{7}|%{7}|\+{7}|-{7}|\|{7}|={7}|\\{7})/;
+    set.rows = set.rows.map((html, i) => (marker.test(lines[i]) ? html.replace('class="line ctx single"', 'class="line ctx single conflict-marker"') : html));
+    this.showLines(set);
+    this.el.view.scrollTop = 0;
   }
 
   /** Fills the view's `.diff-body` with virtually scrolled lines. */

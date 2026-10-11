@@ -2233,3 +2233,23 @@ dialog.prompt textarea:focus {
   color: var(--lane-6);
   font: 600 12px ui-monospace, "SF Mono", Menlo, monospace;
 }
+
+/* Conflicts */
+.list-section {
+  padding: 8px 14px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.list-section.conflicts {
+  color: var(--conflict);
+}
+
+.line.conflict-marker .code {
+  background: color-mix(in srgb, var(--conflict) 16%, var(--bg));
+  color: var(--conflict);
+  font-weight: 600;
+}

@@ -32,16 +32,17 @@ fn main() {
         std::fs::write(file, serde_json::to_string(&tree).unwrap()).unwrap();
 
         let dir = texts.join(&row.commit_id);
-        for file in diff.files.iter().filter(|f| f.status != jork_lib::diff::FileStatus::Deleted) {
+        let changed = diff.files.iter().filter(|f| f.status != jork_lib::diff::FileStatus::Deleted).map(|f| &f.path);
+        for path in changed.chain(&diff.conflicts) {
             std::fs::create_dir_all(&dir).unwrap();
             let text = pollster::block_on(jork_lib::diff::file_text(
                 &open.repo,
                 open.marker_style,
                 &row.commit_id,
-                &file.path,
+                path,
             ))
             .unwrap();
-            let encoded = file.path.replace('/', "__");
+            let encoded = path.replace('/', "__");
             std::fs::write(dir.join(format!("{encoded}.json")), serde_json::to_string(&text).unwrap()).unwrap();
         }
     }
