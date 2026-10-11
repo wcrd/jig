@@ -1024,6 +1024,34 @@ export class RepoView {
     }
   }
 
+  /** The remote to publish to: the one most bookmarks use, else origin. */
+  private defaultRemote(): string {
+    const counts = new Map<string, number>();
+    for (const b of this.log?.sidebar.bookmarks ?? []) {
+      for (const r of b.remotes) counts.set(r.remote, (counts.get(r.remote) ?? 0) + 1);
+    }
+    if (counts.has("origin")) return "origin";
+    return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "origin";
+  }
+
+  /** Menu entries to push a local bookmark, tracking it first if it's new on the remote. */
+  private pushEntry(name: string): MenuEntry {
+    const remote = this.defaultRemote();
+    const bookmark = this.log?.sidebar.bookmarks.find((b) => b.name === name);
+    const onRemote = bookmark?.remotes.some((r) => r.remote === remote);
+    if (onRemote) return { text: `Push “${name}”`, action: () => this.act(`Push ${name}`, () => jj.gitPush(this.path, name)) };
+    return {
+      text: `Push “${name}” to ${remote} (new)`,
+      action: () => this.act(`Push new bookmark ${name}`, () => jj.pushNewBookmark(this.path, name, remote)),
+    };
+  }
+
+  private trackEntry(name: string, remote: string, tracked: boolean): MenuEntry {
+    return tracked
+      ? { text: `Untrack “${name}@${remote}”`, action: () => this.act(`Untrack ${name}@${remote}`, () => jj.bookmarkUntrack(this.path, name, remote)) }
+      : { text: `Track “${name}@${remote}”`, action: () => this.act(`Track ${name}@${remote}`, () => jj.bookmarkTrack(this.path, name, remote)) };
+  }
+
   private localBookmarks(): string[] {
     return (this.log?.sidebar.bookmarks ?? []).filter((b) => b.commitId).map((b) => b.name);
   }
@@ -1074,12 +1102,16 @@ export class RepoView {
     }
     if (here.length > 0) {
       entries.push("separator");
-      for (const name of here) {
-        entries.push({ text: `Push “${name}”`, action: () => this.act(`Push ${name}`, () => jj.gitPush(this.path, name)) });
-      }
+      for (const name of here) entries.push(this.pushEntry(name));
       for (const name of here) {
         entries.push({ text: `Delete “${name}”…`, action: () => this.deleteBookmark(name) });
       }
+    }
+    // Remote bookmarks here: start or stop tracking them.
+    const remotes = row.refs.flatMap((r) => (r.type === "remoteBookmark" ? [r] : []));
+    if (remotes.length > 0) {
+      entries.push("separator");
+      for (const r of remotes) entries.push(this.trackEntry(r.name, r.remote, r.tracked));
     }
     entries.push("separator");
     if (this.selected >= 0 && this.selected !== index) {
@@ -1117,17 +1149,11 @@ export class RepoView {
   private sidebarMenu(item: SidebarItem) {
     const entries: MenuEntry[] = [];
     if (item.kind === "bookmark") {
-      entries.push(
-        { text: `Push “${item.name}”`, action: () => this.act(`Push ${item.name}`, () => jj.gitPush(this.path, item.name)) },
-        { text: `Delete “${item.name}”…`, action: () => this.deleteBookmark(item.name) },
-        "separator",
-      );
-    } else if (item.kind === "remote" && item.remote && !item.tracked) {
-      const remote = item.remote;
-      entries.push(
-        { text: `Track “${item.name}@${remote}”`, action: () => this.act(`Track ${item.name}@${remote}`, () => jj.bookmarkTrack(this.path, item.name, remote)) },
-        "separator",
-      );
+      entries.push(this.pushEntry(item.name), { text: `Delete “${item.name}”…`, action: () => this.deleteBookmark(item.name) });
+      for (const r of item.bookmark?.remotes.filter((r) => r.tracked) ?? []) entries.push(this.trackEntry(item.name, r.remote, true));
+      entries.push("separator");
+    } else if (item.kind === "remote" && item.remote) {
+      entries.push(this.trackEntry(item.name, item.remote, !!item.tracked), "separator");
     }
     if (item.commitId) entries.push({ text: "Show in Graph", action: () => this.selectCommit(item.commitId, item.name) });
     entries.push({ text: "Copy Name", action: () => copy(item.remote ? `${item.name}@${item.remote}` : item.name) });

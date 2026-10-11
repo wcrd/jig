@@ -82,6 +82,10 @@ export const jj = {
   bookmarkDelete: (path: string, name: string) => invoke<CommandOutput>("jj_bookmark_delete", { path, name }),
   bookmarkTrack: (path: string, name: string, remote: string) =>
     invoke<CommandOutput>("jj_bookmark_track", { path, name, remote }),
+  bookmarkUntrack: (path: string, name: string, remote: string) =>
+    invoke<CommandOutput>("jj_bookmark_untrack", { path, name, remote }),
+  pushNewBookmark: (path: string, name: string, remote: string) =>
+    invoke<CommandOutput>("jj_push_new_bookmark", { path, name, remote }),
   gitFetch: (path: string) => invoke<CommandOutput>("jj_git_fetch", { path }),
   gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),
   rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>

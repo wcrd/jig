@@ -198,6 +198,37 @@ async fn jj_in(
     .await
 }
 
+/// Runs several jj commands in order, stopping at the first failure, and
+/// reports them as one result.
+async fn jj_in_many(
+    path: String,
+    build: impl FnOnce() -> anyhow::Result<Vec<Vec<String>>> + Send + 'static,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        let mut combined = jj_cli::CommandOutput {
+            success: true,
+            stdout: String::new(),
+            stderr: String::new(),
+            command: String::new(),
+        };
+        for args in build()? {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let output = jj_cli::run(&root, &args)?;
+            combined.command += &if combined.command.is_empty() { output.command } else { format!(" && {}", output.command) };
+            combined.stdout += &output.stdout;
+            combined.stderr += &output.stderr;
+            if !output.success {
+                combined.success = false;
+                break;
+            }
+        }
+        Ok(combined)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn jj_bookmark_create(
     path: String,
@@ -251,7 +282,41 @@ async fn jj_bookmark_track(
     jj_in(path, move || {
         jj_cli::validate_ref_name(&name)?;
         jj_cli::validate_ref_name(&remote)?;
-        Ok(jj_cli::strings(&["bookmark", "track", &format!("{name}@{remote}")]))
+        // `name@remote` is deprecated in 0.40 in favour of --remote.
+        Ok(jj_cli::strings(&["bookmark", "track", &name, &format!("--remote={remote}")]))
+    })
+    .await
+}
+
+/// Stops syncing a local bookmark with a remote one (nothing is deleted).
+#[tauri::command]
+async fn jj_bookmark_untrack(
+    path: String,
+    name: String,
+    remote: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_ref_name(&remote)?;
+        Ok(jj_cli::strings(&["bookmark", "untrack", &name, &format!("--remote={remote}")]))
+    })
+    .await
+}
+
+/// Publishes a bookmark the remote doesn't have yet: track it, then push.
+#[tauri::command]
+async fn jj_push_new_bookmark(
+    path: String,
+    name: String,
+    remote: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in_many(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_ref_name(&remote)?;
+        Ok(vec![
+            jj_cli::strings(&["bookmark", "track", &name, &format!("--remote={remote}")]),
+            jj_cli::strings(&["git", "push", "--bookmark", &name, &format!("--remote={remote}")]),
+        ])
     })
     .await
 }
@@ -507,6 +572,8 @@ pub fn run() {
             jj_bookmark_set,
             jj_bookmark_delete,
             jj_bookmark_track,
+            jj_bookmark_untrack,
+            jj_push_new_bookmark,
             jj_git_fetch,
             jj_git_push,
             jj_rebase,

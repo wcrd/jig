@@ -29,6 +29,7 @@ const ICONS = {
   remote: `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.7.9A2.6 2.6 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
   tag: `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6zM5.3 5.3h.01" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>`,
 };
+const LINK_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1a2.5 2.5 0 0 1-3.5-3.5l1-1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const LIST_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const TREE_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h5M6 8h7M6 12.5h7M4 4v8.5h2M4 8h2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const CHEVRON = `<svg class="chevron" viewBox="0 0 10 10" width="9" height="9"><path d="M3 2l3.5 3L3 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -221,7 +222,11 @@ export class Sidebar {
       if (item.bookmark.conflict) flags += `<span class="flag conflict" title="Conflicted">??</span>`;
       else if (item.bookmark.tracked && !item.bookmark.synced) flags += `<span class="flag" title="Differs from its remote">*</span>`;
     }
-    if (item.kind === "remote" && !item.tracked) flags += `<span class="flag muted" title="Not tracked locally">untracked</span>`;
+    if (item.kind === "remote") {
+      flags += item.tracked
+        ? `<span class="flag tracked" title="Tracked: the local bookmark follows this on fetch, and pushes update it. Right-click to untrack.">${LINK_ICON}</span>`
+        : `<span class="flag muted" title="Not tracked: fetching won't create or move a local bookmark. Right-click to track it.">untracked</span>`;
+    }
     const current = item.kind === "workspace" && item.tracked ? " current" : "";
     return `${ICONS[item.kind]}<span class="path${current}"><span class="name">${escapeHtml(label)}</span></span>${flags}`;
   }
