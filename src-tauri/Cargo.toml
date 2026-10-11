@@ -1,7 +1,7 @@
 [package]
 name = "jork"
 version = "0.1.0"
-description = "A graph viewer for Jujutsu"
+description = "A GUI graph viewer for Jujutsu"
 edition = "2024"
 
 [lib]

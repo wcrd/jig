@@ -1,6 +1,8 @@
 # Jork
 
-A fast desktop GUI for [Jujutsu](https://github.com/jj-vcs/jj), built with Tauri and `jj-lib`.
+A desktop GUI for [Jujutsu](https://github.com/jj-vcs/jj), built with Tauri and `jj-lib`.
+
+Inspired by `jjui` and `Fork (git)`.
 
 ### Why Jork
 

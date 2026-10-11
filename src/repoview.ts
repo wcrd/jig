@@ -2,7 +2,7 @@
 // its state. Each tab owns a RepoView, so switching tabs keeps scroll
 // position, selection and everything else.
 
-import { fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
+import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { OpLogPanel } from "./oplog";
@@ -11,7 +11,7 @@ import { SearchBar, type SearchTarget } from "./search";
 import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
-import { escapeHtml } from "./format";
+import { escapeHtml, remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, prompt, runWithToast, showHelp, showMenu } from "./ui";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
@@ -1215,6 +1215,15 @@ export class RepoView {
 
   private sidebarMenu(item: SidebarItem) {
     const entries: MenuEntry[] = [];
+    if (item.kind === "remoteRoot" && item.remote) {
+      const remote = item.remote;
+      const web = remoteWebUrl(item.url ?? null);
+      entries.push({ text: `Fetch from ${remote}`, action: () => this.act(`Fetch ${remote}`, () => jj.gitFetch(this.path, remote)) });
+      if (web) entries.push({ text: "Open in Browser", action: () => openUrl(web) });
+      if (item.url) entries.push({ text: "Copy URL", action: () => copy(item.url!) });
+      showMenu(entries);
+      return;
+    }
     if (item.kind === "bookmark") {
       entries.push(this.pushEntry(item.name), { text: `Delete “${item.name}”…`, action: () => this.deleteBookmark(item.name) });
       for (const r of item.bookmark?.remotes.filter((r) => r.tracked) ?? []) entries.push(this.trackEntry(item.name, r.remote, true));

@@ -3,19 +3,21 @@
 
 import { storage } from "./api";
 import { buildTree, renderTree } from "./filetree";
-import { escapeHtml } from "./format";
+import { escapeHtml, remoteLabel } from "./format";
 import type { Sidebar as SidebarData, SidebarBookmark } from "./types";
 
 type Section = "workspaces" | "bookmarks" | "remotes" | "tags";
 
 /** One clickable entry; `commitId` is where it points, if anywhere. */
 export interface SidebarItem {
-  kind: "workspace" | "bookmark" | "remote" | "tag";
+  kind: "workspace" | "bookmark" | "remote" | "tag" | "remoteRoot";
   name: string;
   remote?: string;
   commitId: string | null;
   bookmark?: SidebarBookmark;
   tracked?: boolean;
+  /** For a remote itself: its fetch URL. */
+  url?: string | null;
 }
 
 export interface SidebarCallbacks {
@@ -28,7 +30,9 @@ const ICONS = {
   bookmark: `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M4.5 2.5h7v11L8 10.8l-3.5 2.7z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
   remote: `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.7.9A2.6 2.6 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round"/></svg>`,
   tag: `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6zM5.3 5.3h.01" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round"/></svg>`,
+  remoteRoot: "",
 };
+ICONS.remoteRoot = ICONS.remote;
 const LINK_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1a2.5 2.5 0 0 1-3.5-3.5l1-1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const LIST_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const TREE_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h5M6 8h7M6 12.5h7M4 4v8.5h2M4 8h2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
@@ -79,10 +83,11 @@ export class Sidebar {
       if (item) callbacks.select(this.items[Number(item.dataset.item)]);
     });
     this.list.addEventListener("contextmenu", (event) => {
-      const item = (event.target as HTMLElement).closest<HTMLElement>("[data-item]");
+      const target = event.target as HTMLElement;
+      const item = target.closest<HTMLElement>("[data-item]") ?? target.closest<HTMLElement>("[data-item-menu]");
       if (!item) return;
       event.preventDefault();
-      callbacks.contextMenu(this.items[Number(item.dataset.item)]);
+      callbacks.contextMenu(this.items[Number(item.dataset.item ?? item.dataset.itemMenu)]);
     });
   }
 
@@ -135,6 +140,7 @@ export class Sidebar {
       .filter((t) => matches(t.name))
       .map((t) => ({ kind: "tag", name: t.name, commitId: t.commitId }));
     const remotes = new Map<string, SidebarItem[]>();
+    for (const remote of data.remotes ?? []) remotes.set(remote.name, []);
     for (const b of data.bookmarks) {
       for (const r of b.remotes) {
         if (!matches(`${b.name}@${r.remote}`)) continue;
@@ -149,7 +155,7 @@ export class Sidebar {
         });
       }
     }
-
+    const urls = new Map((data.remotes ?? []).map((r) => [r.name, r.url]));
     let html = "";
     html += this.section("workspaces", "Workspaces", workspaces.length, () => this.flatRows(workspaces, 0));
     html += this.section("bookmarks", "Bookmarks", bookmarks.length, () => this.itemRows("bookmarks", bookmarks, 0));
@@ -160,8 +166,10 @@ export class Sidebar {
         .map(([remote, items]) => {
           const key = `remotes:${remote}`;
           const open = this.filter !== "" || !this.collapsedFolders.has(key);
+          const url = urls.get(remote) ?? null;
+          const index = this.items.push({ kind: "remoteRoot", name: remote, remote, commitId: null, url }) - 1;
           return (
-            `<div class="tree-row folder${open ? " open" : ""}" data-folder="${escapeHtml(key)}" style="padding-left:10px">${CHEVRON}${ICONS.remote}<span class="name">${escapeHtml(remote)}</span></div>` +
+            `<div class="tree-row folder remote-root${open ? " open" : ""}" data-folder="${escapeHtml(key)}" data-item-menu="${index}" style="padding-left:10px" title="${escapeHtml(url ?? remote)}">${CHEVRON}${ICONS.remote}<span class="name">${escapeHtml(remote)}</span><span class="remote-host">${escapeHtml(remoteLabel(url))}</span></div>` +
             (open ? this.itemRows(`remotes:${remote}`, items, 1) : "")
           );
         })
@@ -219,8 +227,13 @@ export class Sidebar {
   private itemContent(item: SidebarItem, label: string): string {
     let flags = "";
     if (item.kind === "bookmark" && item.bookmark) {
+      const differing = item.bookmark.remotes.find((r) => r.tracked && (r.ahead || r.behind));
       if (item.bookmark.conflict) flags += `<span class="flag conflict" title="Conflicted">??</span>`;
-      else if (item.bookmark.tracked && !item.bookmark.synced) flags += `<span class="flag" title="Differs from its remote">*</span>`;
+      else if (differing) {
+        const counts = (differing.ahead ? `↑${differing.ahead}` : "") + (differing.behind ? `↓${differing.behind}` : "");
+        const title = [differing.ahead && `${differing.ahead} ahead of ${differing.remote}`, differing.behind && `${differing.behind} behind ${differing.remote}`].filter(Boolean).join(", ");
+        flags += `<span class="flag" title="${title}">${counts}</span>`;
+      } else if (item.bookmark.tracked && !item.bookmark.synced) flags += `<span class="flag" title="Differs from its remote">*</span>`;
     }
     if (item.kind === "remote") {
       flags += item.tracked

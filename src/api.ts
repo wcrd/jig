@@ -86,7 +86,7 @@ export const jj = {
     invoke<CommandOutput>("jj_bookmark_untrack", { path, name, remote }),
   pushNewBookmark: (path: string, name: string, remote: string) =>
     invoke<CommandOutput>("jj_push_new_bookmark", { path, name, remote }),
-  gitFetch: (path: string) => invoke<CommandOutput>("jj_git_fetch", { path }),
+  gitFetch: (path: string, remote: string | null = null) => invoke<CommandOutput>("jj_git_fetch", { path, remote }),
   gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),
   rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>
     invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement }),
@@ -157,4 +157,13 @@ export function fetchOpLog(path: string, limit = 300): Promise<OpEntry[]> {
 export function fetchConflictHunks(path: string, commitId: string, filePath: string): Promise<ConflictFile> {
   if (!isTauri) return fixture(`/conflicts/${commitId}/${filePath.replaceAll("/", "__")}.json`, "conflict for this file");
   return invoke<ConflictFile>("conflict_hunks", { path, commitId, filePath });
+}
+
+/** Opens an http(s) URL in the default browser. */
+export function openUrl(url: string): Promise<void> {
+  if (!isTauri) {
+    window.open(url, "_blank");
+    return Promise.resolve();
+  }
+  return invoke("open_url", { url });
 }

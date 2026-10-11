@@ -12,7 +12,17 @@ export interface EdgeLayout {
 }
 
 export type RefLabel =
-  | { type: "bookmark"; name: string; conflict: boolean; tracked: boolean; synced: boolean }
+  | {
+      type: "bookmark";
+      name: string;
+      conflict: boolean;
+      tracked: boolean;
+      synced: boolean;
+      /** Commits ahead of / behind `remote` when they differ. */
+      ahead: number;
+      behind: number;
+      remote: string | null;
+    }
   | { type: "remoteBookmark"; name: string; remote: string; tracked: boolean }
   | { type: "tag"; name: string };
 
@@ -62,10 +72,12 @@ export interface SidebarBookmark {
   conflict: boolean;
   tracked: boolean;
   synced: boolean;
-  remotes: { remote: string; commitId: string | null; tracked: boolean }[];
+  remotes: { remote: string; commitId: string | null; tracked: boolean; ahead: number; behind: number }[];
 }
 
 export interface Sidebar {
+  /** The repo's git remotes and their fetch URLs. */
+  remotes: { name: string; url: string | null }[];
   bookmarks: SidebarBookmark[];
   tags: { name: string; commitId: string | null }[];
   workspaces: { name: string; commitId: string; current: boolean }[];

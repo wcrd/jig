@@ -24,6 +24,8 @@ use jj_lib::id_prefix::IdPrefixContext;
 use jj_lib::object_id::ObjectId;
 use jj_lib::op_heads_store;
 use jj_lib::operation::Operation;
+use jj_lib::op_store::RemoteRef;
+use jj_lib::op_store::RefTarget;
 use jj_lib::repo::{ReadonlyRepo, Repo, RepoLoaderError, StoreFactories};
 use jj_lib::repo_path::RepoPathUiConverter;
 use jj_lib::revset::{
@@ -63,6 +65,16 @@ pub struct Sidebar {
     pub bookmarks: Vec<SidebarBookmark>,
     pub tags: Vec<SidebarTag>,
     pub workspaces: Vec<SidebarWorkspace>,
+    /// Every git remote (except jj's internal "git" one), "origin" first.
+    pub remotes: Vec<SidebarRemote>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarRemote {
+    pub name: String,
+    /// Fetch URL.
+    pub url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -85,6 +97,10 @@ pub struct SidebarRemoteRef {
     pub remote: String,
     pub commit_id: Option<String>,
     pub tracked: bool,
+    /// Commits in local but not in this remote ref (capped; 0 unless tracked and differing).
+    pub ahead: u32,
+    /// Commits in this remote ref but not in local (capped; 0 unless tracked and differing).
+    pub behind: u32,
 }
 
 #[derive(Serialize)]
@@ -170,6 +186,12 @@ pub enum RefLabel {
         tracked: bool,
         /// Every tracked remote points at the same commit.
         synced: bool,
+        /// Commits in local but not in `remote` (capped).
+        ahead: u32,
+        /// Commits in `remote` but not in local (capped).
+        behind: u32,
+        /// The tracked remote that differs from local (preferring "origin").
+        remote: Option<String>,
     },
     #[serde(rename_all = "camelCase")]
     RemoteBookmark {
@@ -837,6 +859,13 @@ fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
                 .filter(|(remote, _)| *remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO)
                 .collect();
             let tracked: Vec<_> = remotes.iter().filter(|(_, r)| r.is_tracked()).collect();
+            let counts = |r: &RemoteRef| {
+                if r.is_tracked() && r.target != *local {
+                    ahead_behind(repo, local, &r.target)
+                } else {
+                    (0, 0)
+                }
+            };
             SidebarBookmark {
                 name: name.as_str().to_owned(),
                 commit_id: local.added_ids().next().map(|id| id.hex()),
@@ -849,6 +878,8 @@ fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
                         remote: remote.as_str().to_owned(),
                         commit_id: r.target.added_ids().next().map(|id| id.hex()),
                         tracked: r.is_tracked(),
+                        ahead: counts(r).0,
+                        behind: counts(r).1,
                     })
                     .collect(),
             }
@@ -876,7 +907,49 @@ fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
         .collect();
     workspaces.sort_by(|a, b| b.current.cmp(&a.current).then_with(|| a.name.cmp(&b.name)));
 
-    Sidebar { bookmarks, tags, workspaces }
+    Sidebar { bookmarks, tags, workspaces, remotes: git_remotes(repo) }
+}
+
+const AHEAD_BEHIND_CAP: usize = 100;
+
+/// (ahead, behind) of `local` relative to `remote`: `::local ~ ::remote` and
+/// `::remote ~ ::local`, each capped. 0/0 if either side is absent or conflicted.
+fn ahead_behind(repo: &ReadonlyRepo, local: &RefTarget, remote: &RefTarget) -> (u32, u32) {
+    let (Some(local), Some(remote)) = (local.as_normal(), remote.as_normal()) else {
+        return (0, 0);
+    };
+    let count = |from: &CommitId, excluding: &CommitId| -> u32 {
+        let expression = RevsetExpression::commits(vec![from.clone()])
+            .ancestors()
+            .minus(&RevsetExpression::commits(vec![excluding.clone()]).ancestors());
+        expression
+            .evaluate(repo)
+            .map(|revset| revset.iter().take(AHEAD_BEHIND_CAP).count() as u32)
+            .unwrap_or(0)
+    };
+    (count(local, remote), count(remote, local))
+}
+
+/// Git remotes with fetch URLs, "origin" first. Empty for non-git backends.
+fn git_remotes(repo: &ReadonlyRepo) -> Vec<SidebarRemote> {
+    let Ok(backend) = jj_lib::git::get_git_backend(repo.store()) else {
+        return Vec::new();
+    };
+    let git_repo = backend.git_repo();
+    let config = git_repo.config_snapshot();
+    let mut remotes: Vec<SidebarRemote> = jj_lib::git::get_all_remote_names(repo.store())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| *name != REMOTE_NAME_FOR_LOCAL_GIT_REPO)
+        .map(|name| SidebarRemote {
+            url: config
+                .string(format!("remote.{}.url", name.as_str()))
+                .map(|u| u.to_string()),
+            name: name.as_str().to_owned(),
+        })
+        .collect();
+    remotes.sort_by(|a, b| (a.name != "origin").cmp(&(b.name != "origin")).then_with(|| a.name.cmp(&b.name)));
+    remotes
 }
 
 fn ref_index(repo: &ReadonlyRepo) -> HashMap<CommitId, Vec<RefLabel>> {
@@ -896,6 +969,16 @@ fn ref_index(repo: &ReadonlyRepo) -> HashMap<CommitId, Vec<RefLabel>> {
             .collect();
         if local.is_present() {
             let tracked: Vec<_> = remotes.iter().filter(|(_, r)| r.is_tracked()).collect();
+            let differing = |name: &str| {
+                tracked
+                    .iter()
+                    .find(|(remote, r)| remote.as_str() == name && r.target != *local)
+            };
+            let behind_remote = differing("origin")
+                .or_else(|| tracked.iter().find(|(_, r)| r.target != *local));
+            let (ahead, behind) = behind_remote
+                .map(|(_, r)| ahead_behind(repo, local, &r.target))
+                .unwrap_or((0, 0));
             add(
                 &mut local.added_ids(),
                 RefLabel::Bookmark {
@@ -903,6 +986,9 @@ fn ref_index(repo: &ReadonlyRepo) -> HashMap<CommitId, Vec<RefLabel>> {
                     conflict: local.has_conflict(),
                     tracked: !tracked.is_empty(),
                     synced: tracked.iter().all(|(_, r)| r.target == *local),
+                    ahead,
+                    behind,
+                    remote: behind_remote.map(|(remote, _)| remote.as_str().to_owned()),
                 },
             );
         }
@@ -985,5 +1071,45 @@ mod tests {
             [("Claude Opus 5.5", "noreply@anthropic.com"), ("Sam", "sam@example.com")]
         );
         assert!(coauthors("Just a summary").is_empty());
+    }
+
+    #[test]
+    fn reports_ahead_and_remote_url() {
+        let dir = std::env::temp_dir().join(format!("jork-ahead-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let bare = dir.join("origin.git");
+        let work = dir.join("work");
+        let git_ok = Command::new("git")
+            .args(["init", "--bare", "-q"])
+            .arg(&bare)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        if !git_ok || !jj(&dir, &["git", "clone", bare.to_str().unwrap(), "work"]) {
+            eprintln!("jj/git unavailable; skipping");
+            let _ = std::fs::remove_dir_all(&dir);
+            return;
+        }
+        assert!(jj(&work, &["describe", "-m", "base"]));
+        assert!(jj(&work, &["bookmark", "create", "main", "-r", "@"]));
+        assert!(jj(&work, &["git", "push", "--bookmark", "main", "--allow-new"]));
+        assert!(jj(&work, &["new", "main", "-m", "one"]));
+        assert!(jj(&work, &["new", "-m", "two"]));
+        assert!(jj(&work, &["bookmark", "set", "main", "-r", "@"]));
+        let (resp, _) = super::load_log(&work, None, 50).unwrap();
+        let main = resp.sidebar.bookmarks.iter().find(|b| b.name == "main").unwrap();
+        let origin = main.remotes.iter().find(|r| r.remote == "origin").unwrap();
+        assert_eq!((origin.ahead, origin.behind), (2, 0));
+        let label = resp.rows.iter().flat_map(|r| r.refs.iter()).find_map(|l| match l {
+            super::RefLabel::Bookmark { name, ahead, behind, remote, .. } if name == "main" => {
+                Some((*ahead, *behind, remote.clone()))
+            }
+            _ => None,
+        });
+        assert_eq!(label, Some((2, 0, Some("origin".to_owned()))));
+        assert_eq!(resp.sidebar.remotes.len(), 1);
+        assert_eq!(resp.sidebar.remotes[0].name, "origin");
+        assert!(resp.sidebar.remotes[0].url.as_deref().is_some_and(|u| u.ends_with("origin.git")));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

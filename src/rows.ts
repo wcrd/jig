@@ -20,15 +20,22 @@ function refPill(ref: RefLabel, color: string): string {
   switch (ref.type) {
     case "bookmark": {
       let label = escapeHtml(ref.name);
+      const counts = (ref.ahead ? `↑${ref.ahead}` : "") + (ref.behind ? `↓${ref.behind}` : "");
       if (ref.conflict) label += "??";
+      else if (counts) label += `<span class="unsynced">${counts}</span>`;
       else if (ref.tracked && !ref.synced) label += `<span class="unsynced">*</span>`;
+      const where = ref.remote ?? "its remote";
       const title = ref.conflict
         ? "Conflicted bookmark"
         : !ref.tracked
-          ? "Local bookmark (not tracking a remote)"
+          ? "Local bookmark, not tracking a remote"
           : ref.synced
-            ? "Bookmark, in sync with its remote"
-            : "Bookmark, differs from its remote";
+            ? "In sync with its tracked remote"
+            : counts
+              ? [ref.ahead && `${ref.ahead} ahead of ${ref.name}@${where}`, ref.behind && `${ref.behind} behind ${ref.name}@${where}`]
+                  .filter(Boolean)
+                  .join(", ")
+              : `Differs from ${ref.name}@${where}`;
       return pill(label, {
         kind: ref.conflict ? "bookmark conflict" : "bookmark",
         color,

@@ -66,3 +66,26 @@ export function reflowMessage(text: string): string {
   }
   return out.join("\n");
 }
+
+/**
+ * A browser URL for a git remote (GitHub, GitLab, etc.), or null for local
+ * paths and URLs we can't map.
+ */
+export function remoteWebUrl(url: string | null): string | null {
+  if (!url) return null;
+  let m = /^[\w.-]+@([\w.-]+):(.+?)(\.git)?\/?$/.exec(url); // git@host:org/repo.git
+  if (m) return `https://${m[1]}/${m[2]}`;
+  m = /^ssh:\/\/(?:[\w.-]+@)?([\w.-]+)(?::\d+)?\/(.+?)(\.git)?\/?$/.exec(url);
+  if (m) return `https://${m[1]}/${m[2]}`;
+  m = /^(https?:\/\/)(?:[^@/]+@)?(.+?)(\.git)?\/?$/.exec(url);
+  if (m) return `${m[1]}${m[2]}`;
+  return null;
+}
+
+/** A short form of a remote URL for display: host/org/repo, or a path's tail. */
+export function remoteLabel(url: string | null): string {
+  if (!url) return "";
+  const web = remoteWebUrl(url);
+  if (web) return web.replace(/^https?:\/\//, "");
+  return url.split("/").filter(Boolean).slice(-2).join("/");
+}

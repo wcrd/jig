@@ -229,6 +229,19 @@ async fn jj_in_many(
     .await
 }
 
+/// Opens an http(s) URL (a remote's web page) in the default browser.
+#[tauri::command]
+fn open_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("https://") || url.starts_with("http://")) || url.chars().any(char::is_whitespace) {
+        return Err(format!("not a web URL: {url}"));
+    }
+    std::process::Command::new("open")
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn jj_bookmark_create(
     path: String,
@@ -322,8 +335,18 @@ async fn jj_push_new_bookmark(
 }
 
 #[tauri::command]
-async fn jj_git_fetch(path: String) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, || Ok(jj_cli::strings(&["git", "fetch"]))).await
+async fn jj_git_fetch(
+    path: String,
+    remote: Option<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || match remote {
+        Some(remote) => {
+            jj_cli::validate_ref_name(&remote)?;
+            Ok(jj_cli::strings(&["git", "fetch", &format!("--remote={remote}")]))
+        }
+        None => Ok(jj_cli::strings(&["git", "fetch"])),
+    })
+    .await
 }
 
 #[tauri::command]
@@ -575,6 +598,7 @@ pub fn run() {
             jj_bookmark_untrack,
             jj_push_new_bookmark,
             jj_git_fetch,
+            open_url,
             jj_git_push,
             jj_rebase,
             jj_undo,
