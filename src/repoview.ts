@@ -129,6 +129,10 @@ export class RepoView {
         this.ref("oplog-button").classList.toggle("active", visible);
         if (!visible) this.render();
       },
+      (commitId) => {
+        this.oplog.hide();
+        this.selectCommit(commitId, "That commit");
+      },
     );
 
     this.sidebar = new Sidebar(this.ref("sidebar"), {

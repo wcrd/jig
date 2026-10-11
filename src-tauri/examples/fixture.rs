@@ -64,6 +64,14 @@ fn main() {
     }
     let ops = jork_lib::repo::op_log(&path, 200).unwrap();
     std::fs::write(public.join("oplog.json"), serde_json::to_string(&ops).unwrap()).unwrap();
+    let op_changes = public.join("opchanges");
+    std::fs::create_dir_all(&op_changes).unwrap();
+    for op in ops.iter().take(15) {
+        if let Ok(changes) = jork_lib::repo::op_changes(&path, &op.id) {
+            let file = op_changes.join(format!("{}.json", op.id));
+            std::fs::write(file, serde_json::to_string(&changes).unwrap()).unwrap();
+        }
+    }
     std::fs::write(public.join("fixture.json"), serde_json::to_string(&log).unwrap()).unwrap();
     println!("{} rows, diffs for {}", log.rows.len(), count.min(log.rows.len()));
 }

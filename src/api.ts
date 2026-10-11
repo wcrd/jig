@@ -110,6 +110,30 @@ export interface OpEntry {
   user: string;
   current: boolean;
   snapshot: boolean;
+  /** The command line jj recorded for the operation, e.g. `jj rebase -r abc -o main`. */
+  args: string | null;
+}
+
+export interface OpChange {
+  kind: "added" | "removed" | "rewritten";
+  changeId: string;
+  commitId: string;
+  oldCommitId: string | null;
+  summary: string;
+  empty: boolean;
+}
+
+export interface OpChanges {
+  changes: OpChange[];
+  bookmarks: { name: string; remote: string | null; from: string | null; to: string | null }[];
+  workingCopies: { workspace: string; from: string | null; to: string | null }[];
+  truncated: boolean;
+}
+
+/** What an operation changed, compared with the operation before it. */
+export function fetchOpChanges(path: string, opId: string): Promise<OpChanges> {
+  if (!isTauri) return fixture(`/opchanges/${opId}.json`, "changes for this operation");
+  return invoke<OpChanges>("op_changes", { path, opId });
 }
 
 export function fetchOpLog(path: string, limit = 300): Promise<OpEntry[]> {

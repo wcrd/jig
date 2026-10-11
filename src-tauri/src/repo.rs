@@ -3,7 +3,7 @@
 //! This reads the repo at its current operation without snapshotting the
 //! working copy, so `@` reflects the state as of the last jj command.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
@@ -14,6 +14,7 @@ use jj_cli::config::{ConfigEnv, config_from_environment, default_config_layers};
 use jj_cli::revset_util;
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
+use jj_lib::commit::Commit;
 use jj_lib::config::{ConfigNamePathBuf, StackedConfig};
 use jj_lib::conflicts::ConflictMarkerStyle;
 use jj_lib::fileset::FilesetAliasesMap;
@@ -26,7 +27,7 @@ use jj_lib::operation::Operation;
 use jj_lib::repo::{ReadonlyRepo, Repo, RepoLoaderError, StoreFactories};
 use jj_lib::repo_path::RepoPathUiConverter;
 use jj_lib::revset::{
-    self, Revset, RevsetAliasesMap, RevsetDiagnostics, RevsetExtensions, RevsetParseContext,
+    self, ResolvedRevsetExpression, Revset, RevsetAliasesMap, RevsetExpression, RevsetDiagnostics, RevsetExtensions, RevsetParseContext,
     RevsetWorkspaceContext, SymbolResolver, SymbolResolverExtension, UserRevsetExpression,
 };
 use jj_lib::settings::UserSettings;
@@ -577,6 +578,19 @@ pub struct OpEntry {
     pub current: bool,
     /// A pure working-copy snapshot.
     pub snapshot: bool,
+    /// The command line jj recorded, e.g. `jj rebase -r abc -o main`.
+    pub args: Option<String>,
+}
+
+/// The recorded command line with any leading path to the jj binary removed.
+fn op_args(tags: &HashMap<String, String>) -> Option<String> {
+    let args = tags.get("args")?.trim();
+    if args.is_empty() {
+        return None;
+    }
+    let (first, rest) = args.split_once(' ').unwrap_or((args, ""));
+    let name = first.rsplit(['/', '\\']).next().unwrap_or(first);
+    Some(if rest.is_empty() { name.to_owned() } else { format!("{name} {rest}") })
 }
 
 /// The operation log, newest first, following first parents from the head.
@@ -605,6 +619,7 @@ pub fn op_log(path: &Path, limit: usize) -> Result<Vec<OpEntry>> {
                 time: meta.time.end.timestamp.0,
                 user: format!("{}@{}", meta.username, meta.hostname),
                 snapshot: meta.is_snapshot,
+                args: op_args(&meta.tags),
                 id,
             });
             let Some(parent) = op.parents().await?.into_iter().next() else {
@@ -613,6 +628,192 @@ pub fn op_log(path: &Path, limit: usize) -> Result<Vec<OpEntry>> {
             op = parent;
         }
         Ok(entries)
+    })
+}
+
+const MAX_OP_CHANGES: usize = 300;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpChange {
+    /// "added" | "removed" | "rewritten".
+    pub kind: &'static str,
+    pub change_id: String,
+    /// The new commit (the removed one for "removed").
+    pub commit_id: String,
+    pub old_commit_id: Option<String>,
+    pub summary: String,
+    pub empty: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BookmarkMove {
+    pub name: String,
+    /// None for a local bookmark.
+    pub remote: Option<String>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WcMove {
+    pub workspace: String,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpChanges {
+    pub changes: Vec<OpChange>,
+    pub bookmarks: Vec<BookmarkMove>,
+    pub working_copies: Vec<WcMove>,
+    pub truncated: bool,
+}
+
+/// Bookmark targets keyed by (name, remote); `None` remote is the local ref.
+fn bookmark_targets(repo: &ReadonlyRepo) -> BTreeMap<(String, Option<String>), String> {
+    let mut map = BTreeMap::new();
+    for (name, target) in repo.view().bookmarks() {
+        if let Some(id) = target.local_target.added_ids().next() {
+            map.insert((name.as_str().to_owned(), None), id.hex());
+        }
+        for (remote, r) in target.remote_refs {
+            if remote == REMOTE_NAME_FOR_LOCAL_GIT_REPO {
+                continue;
+            }
+            if let Some(id) = r.target.added_ids().next() {
+                map.insert((name.as_str().to_owned(), Some(remote.as_str().to_owned())), id.hex());
+            }
+        }
+    }
+    map
+}
+
+/// What an operation changed: the diff between the repo at the operation and
+/// at its first parent. The root operation has no changes.
+pub fn op_changes(path: &Path, op_id: &str) -> Result<OpChanges> {
+    crate::jj_cli::validate_op_id(op_id)?;
+    pollster::block_on(async {
+        let root = find_workspace_root(path)
+            .ok_or_else(|| anyhow!("{} is not inside a jj repository", path.display()))?;
+        let loader = DefaultWorkspaceLoaderFactory.create(&root)?;
+        let settings = read_settings(loader.repo_path(), &root)?;
+        let workspace = loader.load(
+            &settings.settings,
+            &StoreFactories::default(),
+            &default_working_copy_factories(),
+        )?;
+        let repo_loader = workspace.repo_loader();
+        let op = jj_lib::op_walk::resolve_op_for_load(repo_loader, op_id)
+            .await
+            .map_err(|e| anyhow!("{}", revset_error_chain(&e)))?;
+        let mut result = OpChanges {
+            changes: Vec::new(),
+            bookmarks: Vec::new(),
+            working_copies: Vec::new(),
+            truncated: false,
+        };
+        let Some(parent) = op.parents().await?.into_iter().next() else {
+            return Ok(result);
+        };
+        let new = repo_loader.load_at(&op).await.context("load operation")?;
+        let old = repo_loader.load_at(&parent).await.context("load parent operation")?;
+
+        // The newer repo's index also contains the older commits.
+        let heads = |r: &ReadonlyRepo| {
+            RevsetExpression::commits(r.view().heads().iter().cloned().collect()).ancestors()
+        };
+        let (new_set, old_set) = (heads(&new), heads(&old));
+        let list = |expr: Arc<ResolvedRevsetExpression>| -> Result<Vec<CommitId>> {
+            expr.evaluate(new.as_ref())?
+                .iter()
+                .collect::<Result<_, _>>()
+                .map_err(Into::into)
+        };
+        let added = list(new_set.minus(&old_set))?;
+        let removed = list(old_set.minus(&new_set))?;
+
+        let store = new.store();
+        let mut removed_by_change: HashMap<_, Vec<_>> = HashMap::new();
+        for id in &removed {
+            let commit = store.get_commit_async(id).await?;
+            removed_by_change.entry(commit.change_id().clone()).or_default().push(commit);
+        }
+        let describe = |kind: &'static str, commit: &Commit, old: Option<&Commit>| -> Result<OpChange> {
+            Ok(OpChange {
+                kind,
+                change_id: commit.change_id().reverse_hex(),
+                commit_id: commit.id().hex(),
+                old_commit_id: old.map(|c| c.id().hex()),
+                summary: commit.description().lines().next().unwrap_or("").to_owned(),
+                empty: pollster::block_on(commit.is_empty(new.as_ref()))?,
+            })
+        };
+        let mut rewritten = Vec::new();
+        let mut plain_added = Vec::new();
+        for id in &added {
+            let commit = store.get_commit_async(id).await?;
+            let old_commit = removed_by_change
+                .get_mut(commit.change_id())
+                .filter(|v| !v.is_empty())
+                .map(|v| v.remove(0));
+            match old_commit {
+                Some(old_commit) => rewritten.push(describe("rewritten", &commit, Some(&old_commit))?),
+                None => plain_added.push(describe("added", &commit, None)?),
+            }
+        }
+        let mut plain_removed = Vec::new();
+        for id in &removed {
+            let commit = store.get_commit_async(id).await?;
+            // Skip the ones that were paired into a rewrite.
+            if removed_by_change
+                .get(commit.change_id())
+                .is_some_and(|v| v.iter().any(|c| c.id() == commit.id()))
+            {
+                plain_removed.push(describe("removed", &commit, None)?);
+            }
+        }
+        let mut changes = rewritten;
+        changes.extend(plain_added);
+        changes.extend(plain_removed);
+        if changes.len() > MAX_OP_CHANGES {
+            changes.truncate(MAX_OP_CHANGES);
+            result.truncated = true;
+        }
+        result.changes = changes;
+
+        let (before, after) = (bookmark_targets(&old), bookmark_targets(&new));
+        let keys: BTreeSet<_> = before.keys().chain(after.keys()).cloned().collect();
+        for key in keys {
+            let (from, to) = (before.get(&key), after.get(&key));
+            if from != to {
+                result.bookmarks.push(BookmarkMove {
+                    name: key.0,
+                    remote: key.1,
+                    from: from.cloned(),
+                    to: to.cloned(),
+                });
+            }
+        }
+
+        let (before, after) = (old.view().wc_commit_ids(), new.view().wc_commit_ids());
+        let mut names: Vec<_> = before.keys().chain(after.keys()).collect();
+        names.sort();
+        names.dedup();
+        for name in names {
+            let (from, to) = (before.get(name), after.get(name));
+            if from != to {
+                result.working_copies.push(WcMove {
+                    workspace: name.as_symbol().to_string(),
+                    from: from.map(|id| id.hex()),
+                    to: to.map(|id| id.hex()),
+                });
+            }
+        }
+        Ok(result)
     })
 }
 
@@ -729,7 +930,43 @@ fn ref_index(repo: &ReadonlyRepo) -> HashMap<CommitId, Vec<RefLabel>> {
 
 #[cfg(test)]
 mod tests {
-    use super::coauthors;
+    use super::{coauthors, op_changes, op_log};
+    use std::path::Path;
+    use std::process::Command;
+
+    fn jj(dir: &Path, args: &[&str]) -> bool {
+        Command::new("jj")
+            .args(args)
+            .current_dir(dir)
+            .env("JJ_USER", "t")
+            .env("JJ_EMAIL", "t@example.com")
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
+    #[test]
+    fn op_changes_reports_rewrite_and_bookmark() {
+        let dir = std::env::temp_dir().join(format!("jork-opchanges-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        if !jj(&dir, &["git", "init"]) {
+            eprintln!("jj unavailable; skipping");
+            return;
+        }
+        assert!(jj(&dir, &["describe", "-m", "first"]));
+        assert!(jj(&dir, &["describe", "-m", "second"]));
+        assert!(jj(&dir, &["bookmark", "create", "topic", "-r", "@"]));
+        let ops = op_log(&dir, 50).unwrap();
+        let find = |needle: &str| ops.iter().find(|o| o.args.as_deref().is_some_and(|a| a.contains(needle))).unwrap();
+        let describe = find("describe -m second");
+        assert!(describe.args.as_deref().unwrap().starts_with("jj describe"));
+        let changes = op_changes(&dir, &describe.id).unwrap();
+        assert!(changes.changes.iter().any(|c| c.kind == "rewritten" && c.summary == "second" && c.old_commit_id.is_some()));
+        let bm = op_changes(&dir, &find("bookmark create").id).unwrap();
+        assert!(bm.bookmarks.iter().any(|b| b.name == "topic" && b.remote.is_none() && b.from.is_none() && b.to.is_some()));
+        assert!(op_changes(&dir, &ops.last().unwrap().id).unwrap().changes.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parses_co_authored_by_trailers() {

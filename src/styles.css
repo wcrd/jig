@@ -2001,7 +2001,7 @@ dialog.prompt textarea:focus {
   grid-template-columns: minmax(0, 1fr) 110px 150px 190px;
   align-items: center;
   gap: 12px;
-  height: 27px;
+  height: 40px;
   padding: 0 14px;
   white-space: nowrap;
 }
@@ -2080,4 +2080,136 @@ dialog.prompt textarea:focus {
 
 .oplog-footer button[disabled] {
   opacity: 0.45;
+}
+
+/* Each operation leads with the command that ran it. */
+.op-description {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.op-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.op-command {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font: 12px ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.op-command.plain {
+  font: inherit;
+}
+
+.op-subtitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.op.snapshot .op-command {
+  color: var(--muted);
+}
+
+/* What changed */
+.oplog-detail {
+  flex: none;
+  height: 38%;
+  min-height: 120px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.opd-title {
+  position: sticky;
+  top: 0;
+  padding: 8px 14px;
+  background: var(--panel-bg);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opd-title .op-command {
+  font-weight: normal;
+  color: var(--muted);
+}
+
+.opd-section {
+  padding: 8px 14px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.opd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 25px;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.opd-row[data-commit] {
+  cursor: pointer;
+}
+
+.opd-row[data-commit]:hover {
+  background: var(--hover);
+}
+
+.opd-kind {
+  flex: none;
+  width: 70px;
+  padding: 1px 0;
+  border-radius: 4px;
+  text-align: center;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--muted);
+}
+
+.opd-kind.added {
+  background: var(--lane-4);
+}
+
+.opd-kind.rewritten {
+  background: var(--lane-5);
+}
+
+.opd-kind.removed {
+  background: var(--lane-2);
+}
+
+.opd-kind.bookmark {
+  background: var(--lane-0);
+}
+
+.opd-kind.wc {
+  background: var(--lane-1);
+}
+
+.opd-summary {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.opd-commits {
+  flex: none;
+  color: var(--muted);
+  font-size: 12px;
 }

@@ -339,6 +339,11 @@ async fn op_log(path: String, limit: Option<usize>) -> Result<Vec<repo::OpEntry>
 }
 
 #[tauri::command]
+async fn op_changes(path: String, op_id: String) -> Result<repo::OpChanges, String> {
+    blocking(move || repo::op_changes(&PathBuf::from(path), &op_id)).await
+}
+
+#[tauri::command]
 async fn jj_op_restore(path: String, op_id: String) -> Result<jj_cli::CommandOutput, String> {
     jj_in(path, move || jj_cli::op_args("restore", &op_id)).await
 }
@@ -436,6 +441,7 @@ pub fn run() {
             jj_squash,
             jj_split,
             op_log,
+            op_changes,
             jj_op_restore,
             jj_op_revert
         ])
