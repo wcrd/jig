@@ -62,6 +62,8 @@ fn main() {
             std::fs::write(file, serde_json::to_string(&diff).unwrap()).unwrap();
         }
     }
+    let ops = jork_lib::repo::op_log(&path, 200).unwrap();
+    std::fs::write(public.join("oplog.json"), serde_json::to_string(&ops).unwrap()).unwrap();
     std::fs::write(public.join("fixture.json"), serde_json::to_string(&log).unwrap()).unwrap();
     println!("{} rows, diffs for {}", log.rows.len(), count.min(log.rows.len()));
 }

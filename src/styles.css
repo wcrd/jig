@@ -1930,29 +1930,55 @@ dialog.prompt textarea:focus {
   background: var(--lane-4);
 }
 
-/* Operation log */
+/* Operation log: replaces the graph and details, inset in a grey frame. */
+
+.repo-view.showing-oplog .repo-body > .workspace {
+  display: none;
+}
+
+.icon-button.active {
+  background: var(--selected);
+  border-color: var(--border);
+  color: var(--text);
+}
 
 .oplog {
-  flex: none;
-  width: 340px;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: 14px;
+  background: color-mix(in srgb, var(--toolbar-bg) 70%, var(--text) 6%);
+}
+
+.oplog[hidden] {
+  display: none;
+}
+
+.oplog-card {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid var(--border);
-  background: var(--panel-bg);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
 }
 
 .oplog-header {
   flex: none;
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 6px 0 12px;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px 0 14px;
   border-bottom: 1px solid var(--border);
 }
 
 .oplog-title {
   font-weight: 600;
+  font-size: 13.5px;
 }
 
 .oplog-toggle {
@@ -1961,7 +1987,7 @@ dialog.prompt textarea:focus {
   align-items: center;
   gap: 4px;
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 
 .oplog-list {
@@ -1969,16 +1995,44 @@ dialog.prompt textarea:focus {
   overflow-y: auto;
 }
 
+/* Table rows: operation, ID, user, time. */
 .op {
-  padding: 6px 12px;
-  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px 150px 190px;
+  align-items: center;
+  gap: 12px;
+  height: 27px;
+  padding: 0 14px;
+  white-space: nowrap;
 }
 
-.op:hover {
+.op > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.op-columns {
+  flex: none;
+  height: 26px;
+  border-bottom: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.oplog-list .op:nth-child(even) {
+  background: color-mix(in srgb, var(--toolbar-bg) 55%, var(--bg));
+}
+
+.oplog-list .op:hover {
   background: var(--hover);
 }
 
-.op.selected {
+.oplog-list .op.selected {
   background: var(--selected);
 }
 
@@ -1986,22 +2040,8 @@ dialog.prompt textarea:focus {
   color: var(--muted);
 }
 
-.op-line {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.op-description {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .op-current {
-  flex: none;
+  margin-right: 8px;
   padding: 0 5px;
   border-radius: 3px;
   background: var(--lane-5);
@@ -2010,17 +2050,11 @@ dialog.prompt textarea:focus {
   font-weight: 700;
 }
 
-.op-meta {
-  margin-top: 2px;
+.op .id,
+.op-user,
+.op-time {
   color: var(--muted);
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.op-meta .id {
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .oplog-footer {
@@ -2028,10 +2062,11 @@ dialog.prompt textarea:focus {
   display: flex;
   align-items: center;
   gap: 6px;
-  min-height: 38px;
-  padding: 6px 12px;
+  min-height: 40px;
+  padding: 6px 14px;
   border-top: 1px solid var(--border);
-  font-size: 11.5px;
+  background: var(--toolbar-bg);
+  font-size: 12px;
 }
 
 .oplog-footer button,

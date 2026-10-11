@@ -113,5 +113,6 @@ export interface OpEntry {
 }
 
 export function fetchOpLog(path: string, limit = 300): Promise<OpEntry[]> {
+  if (!isTauri) return fixture("/oplog.json", "operation log");
   return invoke<OpEntry[]>("op_log", { path, limit });
 }

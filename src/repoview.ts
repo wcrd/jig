@@ -119,7 +119,17 @@ export class RepoView {
       { tab: storage("detailsTab"), changesView: storage("changesView") },
     );
 
-    this.oplog = new OpLogPanel(this.ref("oplog"), path, (label, run) => this.act(label, run));
+    this.oplog = new OpLogPanel(
+      this.ref("oplog"),
+      path,
+      (label, run) => this.act(label, run),
+      (visible) => {
+        // The op log takes the place of the graph and details while open.
+        this.root.classList.toggle("showing-oplog", visible);
+        this.ref("oplog-button").classList.toggle("active", visible);
+        if (!visible) this.render();
+      },
+    );
 
     this.sidebar = new Sidebar(this.ref("sidebar"), {
       select: (item) => this.selectCommit(item.commitId, item.name),
@@ -278,6 +288,10 @@ export class RepoView {
   handleKey(event: KeyboardEvent): boolean {
     if (document.activeElement === this.revsetInput || !this.log) return false;
     if (event.metaKey || event.ctrlKey) return false;
+    if (this.oplog.visible) {
+      if (event.key === "Escape") this.oplog.hide();
+      return event.key === "Escape";
+    }
     if (this.pending) return this.handlePendingKey(event);
     if (this.handleCommandKey(event)) return true;
     // ⌥↑/⌥↓ step through the selected commit's files.

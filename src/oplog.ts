@@ -17,11 +17,15 @@ export class OpLogPanel {
     private el: HTMLElement,
     private path: string,
     private act: (label: string, run: () => Promise<CommandOutput>) => Promise<void>,
+    private onToggle: (visible: boolean) => void,
   ) {
-    el.innerHTML = `<div class="oplog-header"><span class="oplog-title">Operation Log</span>
-        <label class="oplog-toggle"><input type="checkbox" data-ref="hide-snapshots" /> Hide snapshots</label>
-        <button class="header-button" data-action="close" title="Close">×</button></div>
-      <div class="oplog-list"></div><div class="oplog-footer"></div>`;
+    el.innerHTML = `<div class="oplog-card">
+        <div class="oplog-header"><span class="oplog-title">Operation Log</span>
+          <label class="oplog-toggle"><input type="checkbox" data-ref="hide-snapshots" /> Hide snapshots</label>
+          <button class="header-button text" data-action="close" title="Back to the graph (Esc)">Done</button></div>
+        <div class="op op-columns"><span>Operation</span><span>ID</span><span>User</span><span>When</span></div>
+        <div class="oplog-list"></div><div class="oplog-footer"></div>
+      </div>`;
     this.list = el.querySelector(".oplog-list")!;
     this.footer = el.querySelector(".oplog-footer")!;
     const hide = el.querySelector<HTMLInputElement>("[data-ref='hide-snapshots']")!;
@@ -64,11 +68,13 @@ export class OpLogPanel {
 
   async show() {
     this.el.hidden = false;
+    this.onToggle(true);
     await this.refresh();
   }
 
   hide() {
     this.el.hidden = true;
+    this.onToggle(false);
   }
 
   toggle() {
@@ -95,9 +101,11 @@ export class OpLogPanel {
     const ops = this.hideSnapshots ? this.ops.filter((op) => !op.snapshot || op.current) : this.ops;
     this.list.innerHTML = ops
       .map(
-        (op) => `<div class="op${op.id === this.selected ? " selected" : ""}${op.snapshot ? " snapshot" : ""}" data-op="${op.id}" title="${escapeHtml(`${op.description}\n${op.user} · ${formatFullDate(op.time)}\n${op.id}`)}">
-          <div class="op-line"><span class="op-description">${escapeHtml(op.description)}</span>${op.current ? `<span class="op-current">current</span>` : ""}</div>
-          <div class="op-meta"><span class="id">${op.shortId}</span> · ${escapeHtml(formatDate(op.time))} · ${escapeHtml(op.user)}</div>
+        (op) => `<div class="op${op.id === this.selected ? " selected" : ""}${op.snapshot ? " snapshot" : ""}" data-op="${op.id}" title="${escapeHtml(`${op.description}\n${formatFullDate(op.time)}\n${op.id}`)}">
+          <span class="op-description">${op.current ? `<span class="op-current">current</span>` : ""}${escapeHtml(op.description)}</span>
+          <span class="id">${op.shortId}</span>
+          <span class="op-user">${escapeHtml(op.user.split("@")[0])}</span>
+          <span class="op-time">${escapeHtml(formatDate(op.time))}</span>
         </div>`,
       )
       .join("");
