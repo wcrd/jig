@@ -172,10 +172,20 @@ export class Graph {
       );
     }
     if (row.parentCount > 1) {
-      // Merges: a ring with a chevron.
+      // Merges: a ring with a six-pointed star, hollow when mutable and filled
+      // (with the star cut out) when immutable, like other commits.
+      const [ring, star] = row.immutable ? [color, bg] : [bg, color];
+      const r = 2.6;
+      let d = "";
+      for (let i = 0; i < 3; i++) {
+        const a = (Math.PI / 3) * i + Math.PI / 2;
+        const dx = r * Math.cos(a);
+        const dy = r * Math.sin(a);
+        d += `M${f(+x + dx)} ${f(+y + dy)}L${f(+x - dx)} ${f(+y - dy)}`;
+      }
       return (
-        `<circle cx="${x}" cy="${y}" r="6" style="fill:${bg};stroke:${color}"/>` +
-        `<path d="M${f(+x - 2.4)} ${f(+y - 1)}L${x} ${f(+y + 1.4)}L${f(+x + 2.4)} ${f(+y - 1)}" style="stroke:${color}"/>`
+        `<circle cx="${x}" cy="${y}" r="6" style="fill:${ring};stroke:${color}"/>` +
+        `<path d="${d}" stroke-width="1.2" style="stroke:${star}"/>`
       );
     }
     if (row.immutable) {
