@@ -2,11 +2,13 @@
 // its state. Each tab owns a RepoView, so switching tabs keeps scroll
 // position, selection and everything else.
 
-import { fetchCompare, fetchDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, storage } from "./api";
+import { fetchCompare, fetchDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { renderRow } from "./rows";
-import type { CommitDiff, CompareDiff, LogResponse } from "./types";
+import { Sidebar, type SidebarItem } from "./sidebar";
+import { type MenuEntry, confirm, copy, prompt, runWithToast, showMenu } from "./ui";
+import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
 const OVERSCAN = 8;
 /** Wait this long after the selection settles before loading its diff. */
@@ -38,6 +40,7 @@ export class RepoView {
   private detailsTimer = 0;
   private detailsRequest = 0;
   private details: DetailsPanel;
+  private sidebar: Sidebar;
 
   private scroller: HTMLElement;
   private spacer: HTMLElement;
@@ -86,6 +89,11 @@ export class RepoView {
       { tab: storage("detailsTab"), changesView: storage("changesView") },
     );
 
+    this.sidebar = new Sidebar(this.ref("sidebar"), {
+      select: (item) => this.selectCommit(item.commitId, item.name),
+      contextMenu: (item) => this.sidebarMenu(item),
+    });
+
     this.revsetInput.value = this.revset;
     this.syncPreset();
     this.bindEvents();
@@ -113,6 +121,14 @@ export class RepoView {
       }
     });
     this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
+    this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
+    this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
+    this.spacer.addEventListener("contextmenu", (event) => {
+      const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
+      if (!row) return;
+      event.preventDefault();
+      this.commitMenu(Number(row.dataset.index));
+    });
     this.revsetPreset.addEventListener("change", () => {
       if (this.revsetPreset.value !== "custom") this.applyRevset(this.revsetPreset.value);
     });
@@ -125,6 +141,7 @@ export class RepoView {
         this.revsetInput.blur();
       }
     });
+    this.splitter(this.ref("split-sidebar"), this.ref("sidebar"), "columns", "sidebarWidth", 160, 0.4);
     this.splitter(this.ref("split-details"), this.ref("details"), "rows", "detailsHeight", 120, 0.85);
     this.splitter(this.ref("split-info"), this.ref("info-pane"), "columns", "infoWidth", 220, 0.6);
   }
@@ -151,6 +168,7 @@ export class RepoView {
       this.clearRows();
       this.scroller.scrollTop = keepPosition ? previousScroll : 0;
       this.updateStatus();
+      this.sidebar.setData(next.sidebar);
       this.render();
       this.scheduleDetails();
       this.onChange();
@@ -291,6 +309,7 @@ export class RepoView {
   private scheduleDetails() {
     clearTimeout(this.detailsTimer);
     const row = this.log && this.selected >= 0 ? this.log.rows[this.selected] : null;
+    this.sidebar.setSelectedCommit(row?.commitId ?? null);
     if (row && this.compareIndex >= 0 && this.compareIndex !== this.selected) {
       this.scheduleCompare();
       return;
@@ -344,6 +363,101 @@ export class RepoView {
     }, DETAILS_DELAY_MS);
   }
 
+  /** Runs a jj command with a toast, then reloads to show its effect. */
+  private async act(label: string, run: () => Promise<CommandOutput>) {
+    await runWithToast(label, run);
+    await this.load({ keepPosition: true });
+  }
+
+  /** Selects the row for a commit, if it's in the current view. */
+  private selectCommit(commitId: string | null, what: string) {
+    const index = commitId ? (this.log?.rows.findIndex((r) => r.commitId === commitId) ?? -1) : -1;
+    if (index >= 0) {
+      this.compareIndex = -1;
+      this.select(index);
+      this.scheduleDetails();
+      // Bring it to the middle of the list.
+      this.scroller.scrollTop = Math.max(0, index * ROW_HEIGHT - this.scroller.clientHeight / 2);
+    } else {
+      this.statusEl.textContent = `${what} isn't in the current revset`;
+    }
+  }
+
+  private localBookmarks(): string[] {
+    return (this.log?.sidebar.bookmarks ?? []).filter((b) => b.commitId).map((b) => b.name);
+  }
+
+  private async createBookmark(row: LogRow) {
+    const name = await prompt("New Bookmark", `Create a bookmark at ${row.changeId.slice(0, 8)}`, "", "name");
+    if (name) this.act(`Create bookmark ${name}`, () => jj.bookmarkCreate(this.path, name, row.commitId));
+  }
+
+  private async deleteBookmark(name: string) {
+    const ok = await confirm(
+      `Delete bookmark "${name}"? On the next push, it's deleted from tracked remotes too. You can undo with jj undo.`,
+      "Delete Bookmark",
+      "Delete",
+    );
+    if (ok) this.act(`Delete bookmark ${name}`, () => jj.bookmarkDelete(this.path, name));
+  }
+
+  private commitMenu(index: number) {
+    const row = this.log?.rows[index];
+    if (!row) return;
+    const here = row.refs.filter((r) => r.type === "bookmark").map((r) => r.name);
+    const others = this.localBookmarks().filter((n) => !here.includes(n));
+    const entries: MenuEntry[] = [{ text: "New Bookmark Here…", action: () => this.createBookmark(row) }];
+    if (others.length > 0) {
+      entries.push({
+        text: "Move Bookmark Here",
+        items: others.map((name) => ({
+          text: name,
+          action: () => this.act(`Move bookmark ${name}`, () => jj.bookmarkSet(this.path, name, row.commitId)),
+        })),
+      });
+    }
+    if (here.length > 0) {
+      entries.push("separator");
+      for (const name of here) {
+        entries.push({ text: `Push “${name}”`, action: () => this.act(`Push ${name}`, () => jj.gitPush(this.path, name)) });
+      }
+      for (const name of here) {
+        entries.push({ text: `Delete “${name}”…`, action: () => this.deleteBookmark(name) });
+      }
+    }
+    entries.push("separator");
+    if (this.selected >= 0 && this.selected !== index) {
+      entries.push({ text: "Compare with Selected", action: () => this.setCompare(index) });
+      entries.push("separator");
+    }
+    entries.push(
+      { text: "Copy Change ID", action: () => copy(row.changeId) },
+      { text: "Copy Commit ID", action: () => copy(row.commitId) },
+      { text: "Copy Description", action: () => copy(row.summary) },
+    );
+    showMenu(entries);
+  }
+
+  private sidebarMenu(item: SidebarItem) {
+    const entries: MenuEntry[] = [];
+    if (item.kind === "bookmark") {
+      entries.push(
+        { text: `Push “${item.name}”`, action: () => this.act(`Push ${item.name}`, () => jj.gitPush(this.path, item.name)) },
+        { text: `Delete “${item.name}”…`, action: () => this.deleteBookmark(item.name) },
+        "separator",
+      );
+    } else if (item.kind === "remote" && item.remote && !item.tracked) {
+      const remote = item.remote;
+      entries.push(
+        { text: `Track “${item.name}@${remote}”`, action: () => this.act(`Track ${item.name}@${remote}`, () => jj.bookmarkTrack(this.path, item.name, remote)) },
+        "separator",
+      );
+    }
+    if (item.commitId) entries.push({ text: "Show in Graph", action: () => this.selectCommit(item.commitId, item.name) });
+    entries.push({ text: "Copy Name", action: () => copy(item.remote ? `${item.name}@${item.remote}` : item.name) });
+    showMenu(entries);
+  }
+
   private syncPreset() {
     const match = [...this.revsetPreset.options].find((o) => o.value === this.revset && o.value !== "custom");
     this.revsetPreset.value = match ? match.value : "custom";
@@ -352,6 +466,11 @@ export class RepoView {
   private applyRevset(value: string) {
     this.revset = value.trim();
     storage(`revset:${this.path}`, this.revset || null);
+    this.sidebar = new Sidebar(this.ref("sidebar"), {
+      select: (item) => this.selectCommit(item.commitId, item.name),
+      contextMenu: (item) => this.sidebarMenu(item),
+    });
+
     this.revsetInput.value = this.revset;
     this.syncPreset();
     this.load();
@@ -363,6 +482,8 @@ export class RepoView {
     if (height) this.ref("details").style.height = `${height}px`;
     const width = Number(storage("infoWidth"));
     if (width) this.ref("info-pane").style.width = `${width}px`;
+    const sidebarWidth = Number(storage("sidebarWidth"));
+    if (sidebarWidth) this.ref("sidebar").style.width = `${sidebarWidth}px`;
   }
 
   /** Makes a splitter resize `target` along one axis, remembering the size. */

@@ -5,14 +5,15 @@
 
 import {
   type Expansion,
-  diffBodyHtml,
+  diffLines,
   expandGap,
-  fileBodyHtml,
+  fileLines,
 
   newExpansion,
   splitLines,
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
+import { type LineSet, VirtualLines } from "./virtual";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { agentBadge, avatarHtml } from "./agents";
 import { escapeHtml, formatFullDate, reflowMessage } from "./format";
@@ -86,11 +87,15 @@ export class DetailsPanel {
   private treePath: string | null = null;
   private treeOrder: number[] = [];
 
+  /** Draws only the visible lines of large diffs and files. */
+  private virtual: VirtualLines;
+
   constructor(
     private el: DetailsElements,
     private source: DetailsSource,
     prefs: { tab?: string | null; changesView?: string | null },
   ) {
+    this.virtual = new VirtualLines(el.view);
     this.tab = (["commit", "changes", "tree"].includes(prefs.tab ?? "") ? prefs.tab : "commit") as DetailsTab;
     this.changesView = prefs.changesView === "tree" ? "tree" : "list";
 
@@ -473,9 +478,22 @@ export class DetailsPanel {
       `<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${rename}${escapeHtml(file.path)}</span>` +
       (file.conflict ? `<span class="pill flag conflict"><span class="label">conflict</span></span>` : "") +
       `<span class="header-buttons">${fullButton}</span></div>` +
-      `<div class="diff-body">${diffBodyHtml(file, expansion, lines, language, highlight)}</div>`;
+      `<div class="diff-body"></div>`;
+    this.showLines(diffLines(file, expansion, lines, language, highlight));
     this.el.view.scrollTop = resetScroll ? 0 : scrollTop;
     this.el.view.scrollLeft = resetScroll ? 0 : scrollLeft;
+  }
+
+  /** Fills the view's `.diff-body` with virtually scrolled lines. */
+  private showLines(lines: LineSet | { placeholder: string }) {
+    const body = this.el.view.querySelector<HTMLElement>(".diff-body");
+    if (!body) return;
+    if ("placeholder" in lines) {
+      this.virtual.unmount();
+      body.innerHTML = `<div class="placeholder-text">${escapeHtml(lines.placeholder)}</div>`;
+    } else {
+      this.virtual.mount(body, lines);
+    }
   }
 
   private async onViewButton(button: HTMLElement) {
@@ -538,11 +556,12 @@ export class DetailsPanel {
       return;
     }
     if (this.treePath !== path || this.row !== row || this.tab !== "tree") return;
-    const body =
+    this.el.view.innerHTML = header + `<div class="diff-body"></div>`;
+    this.showLines(
       text.text != null
-        ? fileBodyHtml(splitLines(text.text), highlightCached(text, text.text, languageFor(path)))
-        : `<div class="placeholder-text">${text.binary ? "Binary file not shown" : text.tooLarge ? "File too large to show" : "Not a regular file"}</div>`;
-    this.el.view.innerHTML = header + `<div class="diff-body">${body}</div>`;
+        ? fileLines(splitLines(text.text), highlightCached(text, text.text, languageFor(path)))
+        : { placeholder: text.binary ? "Binary file not shown" : text.tooLarge ? "File too large to show" : "Not a regular file" },
+    );
     this.el.view.scrollTop = 0;
   }
 

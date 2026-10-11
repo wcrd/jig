@@ -1,4 +1,5 @@
 pub mod diff;
+pub mod jj_cli;
 pub mod layout;
 pub mod repo;
 
@@ -141,6 +142,99 @@ async fn head_op_id(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
+/// Runs a jj CLI command in the workspace containing `path`.
+async fn jj_in(
+    path: String,
+    build: impl FnOnce() -> anyhow::Result<Vec<String>> + Send + 'static,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        let args = build()?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        jj_cli::run(&root, &args)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_bookmark_create(
+    path: String,
+    name: String,
+    revision: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_revision(&revision)?;
+        Ok(jj_cli::strings(&["bookmark", "create", &name, "-r", &revision]))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_bookmark_set(
+    path: String,
+    name: String,
+    revision: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_revision(&revision)?;
+        Ok(jj_cli::strings(&[
+            "bookmark",
+            "set",
+            &name,
+            "-r",
+            &revision,
+            "--allow-backwards",
+        ]))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_bookmark_delete(path: String, name: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        Ok(jj_cli::strings(&["bookmark", "delete", &name]))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_bookmark_track(
+    path: String,
+    name: String,
+    remote: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_ref_name(&remote)?;
+        Ok(jj_cli::strings(&["bookmark", "track", &format!("{name}@{remote}")]))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_git_fetch(path: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, || Ok(jj_cli::strings(&["git", "fetch"]))).await
+}
+
+#[tauri::command]
+async fn jj_git_push(
+    path: String,
+    bookmark: Option<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || match bookmark {
+        Some(name) => {
+            jj_cli::validate_ref_name(&name)?;
+            Ok(jj_cli::strings(&["git", "push", "-b", &name]))
+        }
+        None => Ok(jj_cli::strings(&["git", "push"])),
+    })
+    .await
+}
+
 #[derive(serde::Serialize)]
 struct InitialRepo {
     path: String,
@@ -179,7 +273,13 @@ pub fn run() {
             file_text,
             tree_files,
             head_op_id,
-            initial_repo
+            initial_repo,
+            jj_bookmark_create,
+            jj_bookmark_set,
+            jj_bookmark_delete,
+            jj_bookmark_track,
+            jj_git_fetch,
+            jj_git_push
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

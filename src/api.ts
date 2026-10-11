@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { CommitDiff, CompareDiff, FileText, LogResponse, TreeEntry } from "./types";
+import type { CommandOutput, CommitDiff, CompareDiff, FileText, LogResponse, TreeEntry } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -58,3 +58,16 @@ export function fetchHeadOpId(path: string): Promise<string> {
 export function fetchInitialRepo(): Promise<{ path: string; explicit: boolean } | null> {
   return invoke("initial_repo");
 }
+
+/** Repository changes, run through the user's `jj` so it behaves exactly as jj does. */
+export const jj = {
+  bookmarkCreate: (path: string, name: string, revision: string) =>
+    invoke<CommandOutput>("jj_bookmark_create", { path, name, revision }),
+  bookmarkSet: (path: string, name: string, revision: string) =>
+    invoke<CommandOutput>("jj_bookmark_set", { path, name, revision }),
+  bookmarkDelete: (path: string, name: string) => invoke<CommandOutput>("jj_bookmark_delete", { path, name }),
+  bookmarkTrack: (path: string, name: string, remote: string) =>
+    invoke<CommandOutput>("jj_bookmark_track", { path, name, remote }),
+  gitFetch: (path: string) => invoke<CommandOutput>("jj_git_fetch", { path }),
+  gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),
+};

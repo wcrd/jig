@@ -892,13 +892,6 @@ body.resizing-columns * {
   border-radius: 2px;
 }
 
-.line.hunk {
-  margin-top: 6px;
-}
-
-.line.hunk:first-child {
-  margin-top: 0;
-}
 
 .line.hunk .code,
 .line.hunk .no {
@@ -990,7 +983,7 @@ body.resizing-columns * {
   z-index: 1;
 }
 
-.diff-lines.single .line .no {
+.line.single .no {
   border-right: 1px solid var(--border);
 }
 
@@ -1343,4 +1336,305 @@ body > .empty {
 
 .file-header > span {
   white-space: nowrap;
+}
+
+/* Virtually scrolled lines: a full-height spacer with a window of rows. */
+.vlines {
+  position: relative;
+  min-width: 100%;
+  font: 12px/18px ui-monospace, "SF Mono", Menlo, monospace;
+  tab-size: 4;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.vwindow {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.vlines .line {
+  height: 18px;
+}
+
+/* Toolbar buttons */
+
+.tool-button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.tool-button:hover {
+  background: var(--hover);
+}
+
+.tool-button:active {
+  background: var(--selected);
+}
+
+.toolbar-gap {
+  width: 4px;
+}
+
+/* Sidebar */
+
+.repo-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.repo-body > .workspace {
+  flex: 1;
+  min-width: 0;
+}
+
+.sidebar {
+  flex: none;
+  width: 230px;
+  min-width: 160px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+}
+
+.sidebar-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 6px 6px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-filter {
+  flex: 1;
+  min-width: 0;
+  height: 22px;
+  margin-right: 4px;
+  padding: 0 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--input-bg);
+  font-size: 12px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.sidebar-filter:focus {
+  border-color: var(--commit-id);
+}
+
+.sidebar-list {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 8px;
+}
+
+.sidebar-section {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  margin-top: 6px;
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.sidebar-section.open .chevron {
+  transform: rotate(90deg);
+}
+
+.sidebar-section .count {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+.sidebar-item {
+  height: 22px;
+  font-size: 12.5px;
+}
+
+.sidebar-item svg {
+  flex: none;
+  color: var(--muted);
+}
+
+.sidebar-item .current {
+  font-weight: 600;
+}
+
+.sidebar-item .flag {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.sidebar-item .flag.conflict {
+  color: var(--conflict);
+  font-weight: 700;
+}
+
+/* Prompt dialog */
+
+dialog.prompt {
+  width: 340px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.25);
+}
+
+dialog.prompt::backdrop {
+  background: rgb(0 0 0 / 0.15);
+}
+
+.prompt-title {
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+
+dialog.prompt label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+dialog.prompt input {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: 13px ui-monospace, "SF Mono", Menlo, monospace;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+dialog.prompt input:focus {
+  border-color: var(--commit-id);
+}
+
+.prompt-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.prompt-buttons button {
+  padding: 4px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--toolbar-bg);
+}
+
+.prompt-buttons button.primary {
+  border-color: var(--commit-id);
+  background: var(--commit-id);
+  color: #fff;
+}
+
+/* Toasts for command results */
+
+.toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 380px;
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.15);
+  font-size: 12px;
+}
+
+.toast.failure {
+  border-color: color-mix(in srgb, var(--conflict) 50%, var(--border));
+}
+
+.toast-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.toast.success .toast-title {
+  color: var(--add-text);
+}
+
+.toast.failure .toast-title {
+  color: var(--conflict);
+}
+
+.toast-close {
+  margin-left: auto;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.toast-command {
+  margin-top: 4px;
+  color: var(--muted);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 11px;
+}
+
+.toast-output {
+  max-height: 160px;
+  overflow: auto;
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  font: 11px/1.4 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--text);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.spinner {
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--commit-id);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

@@ -4,6 +4,7 @@
 import { escapeHtml } from "./format";
 import { highlightLines, type Segment } from "./highlight";
 import type { DiffLine, FileDiff } from "./types";
+import { displayLength, type LineSet } from "./virtual";
 
 /** Lines revealed per click on an expand control. */
 export const EXPAND_STEP = 20;
@@ -65,28 +66,39 @@ export function expandGap(expansion: Expansion, gap: number, direction: "up" | "
   expansion.gaps.set(gap, shown);
 }
 
+/** Two line-number columns. */
+const DIFF_GUTTER = 92;
+const FILE_GUTTER = 46;
+
 /**
- * The diff body. `lines` is the new file's text once loaded; until then gaps
- * show their controls but no text. `newHighlight` is that text highlighted,
- * which colours context better than highlighting the hunks alone.
+ * The diff's lines, for virtual scrolling, or a placeholder message when
+ * there's nothing to show. `lines` is the new file's text once loaded; until
+ * then gaps show their controls but no text. `newHighlight` is that text
+ * highlighted, which colours context better than highlighting hunks alone.
  */
-export function diffBodyHtml(
+export function diffLines(
   file: FileDiff,
   expansion: Expansion,
   lines: string[] | null,
   language: string | null,
   newHighlight: Segment[][] | null,
-): string {
-  if (file.binary) return `<div class="placeholder-text">Binary file not shown</div>`;
-  if (file.omitted) return `<div class="placeholder-text">Diff too large to show</div>`;
+): LineSet | { placeholder: string } {
+  if (file.binary) return { placeholder: "Binary file not shown" };
+  if (file.omitted) return { placeholder: "Diff too large to show" };
   if (file.hunks.length === 0) {
-    return `<div class="placeholder-text">${file.status === "added" || file.status === "deleted" ? "Empty file" : "No content changes"}</div>`;
+    return { placeholder: file.status === "added" || file.status === "deleted" ? "Empty file" : "No content changes" };
   }
 
   const gaps = gapsOf(file);
   const last = gaps.length - 1;
   const hunkSegments = language ? hunkHighlights(file, language) : null;
-  let html = `<div class="diff-lines">`;
+  const rows: string[] = [];
+  let maxChars = 0;
+  const context = (from: number, count: number, gap: Gap) => {
+    if (!lines || count <= 0) return;
+    for (let n = from; n < from + count; n++) maxChars = Math.max(maxChars, displayLength(lines[n - 1] ?? ""));
+    rows.push(...contextLines(lines, newHighlight, gap, from, count));
+  };
 
   gaps.forEach((gap, g) => {
     const size = Math.max(0, gap.to - gap.from + 1);
@@ -109,12 +121,12 @@ export function diffBodyHtml(
     }
     const hidden = size - top - bottom;
 
-    html += contextLines(lines, newHighlight, gap, gap.from, top);
+    context(gap.from, top, gap);
     const hunk = file.hunks[g];
     if (hidden > 0 || (g === 0 && size === 0)) {
-      html += gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : "");
+      rows.push(gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : ""));
     }
-    html += contextLines(lines, newHighlight, gap, gap.to - bottom + 1, bottom);
+    context(gap.to - bottom + 1, bottom, gap);
 
     if (hunk) {
       let oldNo = hunk.oldStart;
@@ -123,11 +135,12 @@ export function diffBodyHtml(
         const segments = (line.kind !== "-" && newHighlight?.[newNo - 1]) || hunkSegments?.[g][i] || null;
         const left = line.kind === "+" ? "" : String(oldNo++);
         const right = line.kind === "-" ? "" : String(newNo++);
-        html += lineHtml(line, left, right, segments);
+        maxChars = Math.max(maxChars, displayLength(line.tokens.map(([, t]) => t).join("")));
+        rows.push(lineHtml(line, left, right, segments));
       });
     }
   });
-  return html + `</div>`;
+  return { rows, maxChars: Math.max(maxChars, 60), gutter: DIFF_GUTTER };
 }
 
 function hunkHeader(hunk: { oldStart: number; oldCount: number; newStart: number; newCount: number }) {
@@ -153,20 +166,19 @@ function gapRow(g: number, hidden: number, first: boolean, last: boolean, header
 }
 
 function contextLines(
-  lines: string[] | null,
+  lines: string[],
   highlight: Segment[][] | null,
   gap: Gap,
   from: number,
   count: number,
-): string {
-  if (!lines || count <= 0) return "";
-  let html = "";
+): string[] {
+  const rows: string[] = [];
   for (let n = from; n < from + count; n++) {
     const text = lines[n - 1] ?? "";
     const code = codeHtml([[false, text]], highlight?.[n - 1] ?? null);
-    html += `<div class="line ctx"><span class="no">${gap.oldFrom + (n - gap.from)}</span><span class="no">${n}</span><span class="code">${code}</span></div>`;
+    rows.push(`<div class="line ctx"><span class="no">${gap.oldFrom + (n - gap.from)}</span><span class="no">${n}</span><span class="code">${code}</span></div>`);
   }
-  return html;
+  return rows;
 }
 
 function lineHtml(line: DiffLine, left: string, right: string, segments: Segment[] | null): string {
@@ -244,12 +256,13 @@ function hunkHighlights(file: FileDiff, language: string): (Segment[] | null)[][
 }
 
 /** A whole file with line numbers, for the file browser. */
-export function fileBodyHtml(lines: string[], highlight: Segment[][] | null): string {
-  let html = `<div class="diff-lines single">`;
-  lines.forEach((text, i) => {
-    html += `<div class="line ctx"><span class="no">${i + 1}</span><span class="code">${codeHtml([[false, text]], highlight?.[i] ?? null)}</span></div>`;
+export function fileLines(lines: string[], highlight: Segment[][] | null): LineSet {
+  let maxChars = 60;
+  const rows = lines.map((text, i) => {
+    maxChars = Math.max(maxChars, displayLength(text));
+    return `<div class="line ctx single"><span class="no">${i + 1}</span><span class="code">${codeHtml([[false, text]], highlight?.[i] ?? null)}</span></div>`;
   });
-  return html + `</div>`;
+  return { rows, maxChars, gutter: FILE_GUTTER };
 }
 
 /** Splits file text into lines, without a phantom line after a final newline. */

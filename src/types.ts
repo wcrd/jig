@@ -52,6 +52,30 @@ export interface LogResponse {
   maxWidth: number;
   truncated: boolean;
   elapsedMs: number;
+  sidebar: Sidebar;
+}
+
+export interface SidebarBookmark {
+  name: string;
+  /** Local target; null for a bookmark that only exists on remotes. */
+  commitId: string | null;
+  conflict: boolean;
+  tracked: boolean;
+  synced: boolean;
+  remotes: { remote: string; commitId: string | null; tracked: boolean }[];
+}
+
+export interface Sidebar {
+  bookmarks: SidebarBookmark[];
+  tags: { name: string; commitId: string | null }[];
+  workspaces: { name: string; commitId: string; current: boolean }[];
+}
+
+export interface CommandOutput {
+  success: boolean;
+  stdout: string;
+  stderr: string;
+  command: string;
 }
 
 export interface Person {

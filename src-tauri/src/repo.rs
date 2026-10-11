@@ -52,6 +52,53 @@ pub struct LogResponse {
     pub max_width: u32,
     pub truncated: bool,
     pub elapsed_ms: u64,
+    /// Bookmarks, tags and workspaces for the sidebar; independent of the revset.
+    pub sidebar: Sidebar,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Sidebar {
+    pub bookmarks: Vec<SidebarBookmark>,
+    pub tags: Vec<SidebarTag>,
+    pub workspaces: Vec<SidebarWorkspace>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarBookmark {
+    pub name: String,
+    /// Local target, if the bookmark exists locally.
+    pub commit_id: Option<String>,
+    pub conflict: bool,
+    /// Tracks at least one remote.
+    pub tracked: bool,
+    /// Every tracked remote points at the local target.
+    pub synced: bool,
+    pub remotes: Vec<SidebarRemoteRef>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarRemoteRef {
+    pub remote: String,
+    pub commit_id: Option<String>,
+    pub tracked: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarTag {
+    pub name: String,
+    pub commit_id: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarWorkspace {
+    pub name: String,
+    pub commit_id: String,
+    pub current: bool,
 }
 
 #[derive(Serialize)]
@@ -487,6 +534,7 @@ async fn load_log_async(
         max_width: layout.max_width,
         truncated,
         elapsed_ms: started.elapsed().as_millis() as u64,
+        sidebar: build_sidebar(&repo, &workspace.workspace_name().as_symbol().to_string()),
     };
     Ok((
         response,
@@ -513,6 +561,62 @@ pub fn head_op_id(path: &Path) -> Result<String> {
         let repo = load_at_head(&workspace).await?;
         Ok(repo.operation().id().hex()[..12].to_owned())
     })
+}
+
+/// Everything the sidebar lists, read straight from the view so it doesn't
+/// depend on which commits the revset happens to show.
+fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
+    let view = repo.view();
+    let mut bookmarks: Vec<SidebarBookmark> = view
+        .bookmarks()
+        .map(|(name, target)| {
+            let local = target.local_target;
+            let remotes: Vec<_> = target
+                .remote_refs
+                .iter()
+                .filter(|(remote, _)| *remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO)
+                .collect();
+            let tracked: Vec<_> = remotes.iter().filter(|(_, r)| r.is_tracked()).collect();
+            SidebarBookmark {
+                name: name.as_str().to_owned(),
+                commit_id: local.added_ids().next().map(|id| id.hex()),
+                conflict: local.has_conflict(),
+                tracked: !tracked.is_empty(),
+                synced: tracked.iter().all(|(_, r)| r.target == *local),
+                remotes: remotes
+                    .iter()
+                    .map(|(remote, r)| SidebarRemoteRef {
+                        remote: remote.as_str().to_owned(),
+                        commit_id: r.target.added_ids().next().map(|id| id.hex()),
+                        tracked: r.is_tracked(),
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    bookmarks.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut tags: Vec<SidebarTag> = view
+        .local_tags()
+        .map(|(name, target)| SidebarTag {
+            name: name.as_str().to_owned(),
+            commit_id: target.added_ids().next().map(|id| id.hex()),
+        })
+        .collect();
+    tags.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut workspaces: Vec<SidebarWorkspace> = view
+        .wc_commit_ids()
+        .iter()
+        .map(|(name, id)| SidebarWorkspace {
+            name: name.as_symbol().to_string(),
+            commit_id: id.hex(),
+            current: name.as_symbol().to_string() == current_workspace,
+        })
+        .collect();
+    workspaces.sort_by(|a, b| b.current.cmp(&a.current).then_with(|| a.name.cmp(&b.name)));
+
+    Sidebar { bookmarks, tags, workspaces }
 }
 
 fn ref_index(repo: &ReadonlyRepo) -> HashMap<CommitId, Vec<RefLabel>> {
