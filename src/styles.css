@@ -1283,3 +1283,8 @@ body > .empty {
   letter-spacing: 0.3px;
   vertical-align: 1px;
 }
+
+/* Let the corner badge hang outside the cell; the name truncates itself. */
+.row > .author {
+  overflow: visible;
+}
