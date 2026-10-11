@@ -508,6 +508,10 @@ export class DetailsPanel {
     this.selectItem(next);
   }
 
+  get currentTab(): DetailsTab {
+    return this.tab;
+  }
+
   setTab(tab: DetailsTab) {
     if (tab === this.tab) return;
     this.tab = tab;
@@ -953,9 +957,10 @@ export class DetailsPanel {
 
   /**
    * Edits the shown commit's message in place, on the Commit tab, so the
-   * details stay in view; resolves to null if cancelled.
+   * details stay in view; resolves to null if cancelled. Afterwards it goes
+   * back to the tab it was on, unless told to stay on the Commit tab.
    */
-  editDescription(row: LogRow, initial: string): Promise<string | null> {
+  editDescription(row: LogRow, initial: string, stayOnCommit = false): Promise<string | null> {
     this.cancelEdit();
     const el = document.createElement("div");
     el.className = "ci-editor";
@@ -983,7 +988,7 @@ export class DetailsPanel {
       if (button) this.finishEdit(button.dataset.edit === "save" ? textarea.value : null);
     });
     return new Promise((resolve) => {
-      this.editor = { changeId: row.changeId, initial, el, textarea, returnTab: this.tab, resolve };
+      this.editor = { changeId: row.changeId, initial, el, textarea, returnTab: stayOnCommit ? "commit" : this.tab, resolve };
       this.setTab("commit");
       this.renderInfo();
       textarea.focus();

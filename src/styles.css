@@ -207,8 +207,12 @@ select {
   color: var(--muted);
 }
 
-.toolbar-status {
+/* Help and settings sit at the right, against the status. */
+.toolbar-end {
   margin-left: auto;
+}
+
+.toolbar-status {
   color: var(--muted);
   font-size: 12px;
   white-space: nowrap;
@@ -1953,9 +1957,29 @@ dialog.prompt.editor {
   display: none;
 }
 
+/* ←: the details panel shrinks to its tab bar. */
+.repo-view.details-min .details {
+  height: auto !important;
+  min-height: 0;
+}
+
+.repo-view.details-min :is(.details-body, [data-ref="split-details"]) {
+  display: none;
+}
+
+/* Inset in a grey frame, as the operation log is. */
+.repo-view.full-diff .workspace {
+  padding: 14px;
+  background: color-mix(in srgb, var(--toolbar-bg) 70%, var(--text) 6%);
+}
+
 .repo-view.full-diff .details {
   flex: 1;
   height: auto !important;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
 }
 
 .detail-tabs .full-diff-exit {
@@ -1967,6 +1991,24 @@ dialog.prompt.editor {
 
 .repo-view.full-diff .detail-tabs .full-diff-exit {
   display: block;
+}
+
+/* In the same spot as the exit button, while the panel is its usual size. */
+.detail-tabs .full-diff-enter {
+  order: 1;
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+  padding: 3px 6px;
+}
+
+.detail-tabs .full-diff-enter:hover {
+  background: var(--hover);
+  border-color: var(--border);
+}
+
+.repo-view.full-diff .detail-tabs .full-diff-enter {
+  display: none;
 }
 
 .full-diff-exit kbd {

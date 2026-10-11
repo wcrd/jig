@@ -78,6 +78,8 @@ export class RepoView {
   private diffCache = new Map<string, CommitDiff>();
   private detailsTimer = 0;
   private fullDiff = false;
+  /** ←: the details panel shrinks to its tab bar, leaving the graph the window. */
+  private detailsMin = false;
   private detailsRequest = 0;
   private details: DetailsPanel;
   private sidebar: Sidebar;
@@ -223,6 +225,11 @@ export class RepoView {
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
     this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
     this.ref("help").addEventListener("click", () => showHelp());
+    this.ref("full-diff-enter").addEventListener("click", () => this.toggleFullDiff());
+    // Picking a tab brings a minimised panel back.
+    this.ref("detail-tabs").addEventListener("click", (event) => {
+      if ((event.target as HTMLElement).closest("[data-tab]")) this.setDetailsMin(false);
+    });
     this.ref("full-diff-exit").addEventListener("click", () => this.toggleFullDiff());
     this.ref("settings").addEventListener("click", () => showSettings());
     this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
@@ -393,8 +400,8 @@ export class RepoView {
     }
     if (this.pending) return this.handlePendingKey(event);
     if (this.handleCommandKey(event)) return true;
-    // ⌥↑/⌥↓ step through the selected commit's files.
-    if (event.altKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
+    // ⌥↑/⌥↓ step through the selected commit's files, as plain ↑/↓ do at full size; j / k still move commits.
+    if ((event.altKey || this.fullDiff) && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       this.details.moveFile(event.key === "ArrowDown" ? 1 : -1);
       return true;
     }
@@ -411,6 +418,17 @@ export class RepoView {
     };
     if (event.key === "Escape" && this.fullDiff) {
       this.toggleFullDiff();
+      return true;
+    }
+    // ← / → step the details panel between minimised, its usual size and full size.
+    if (event.key === "ArrowLeft") {
+      if (this.fullDiff) this.toggleFullDiff();
+      else this.setDetailsMin(true);
+      return true;
+    }
+    if (event.key === "ArrowRight") {
+      if (this.detailsMin) this.setDetailsMin(false);
+      else if (!this.fullDiff) this.toggleFullDiff();
       return true;
     }
     if (event.key === "Escape" && this.compareIndex >= 0) {
@@ -481,11 +499,16 @@ export class RepoView {
         this.editCommit(row);
         return true;
       case "Enter":
+        // ↩ leaves the Commit tab showing afterwards; ⇧D goes back to where it was.
+        this.describe(row, true);
+        return true;
       case "D":
         this.describe(row);
         return true;
       case "d":
-        this.toggleFullDiff();
+        // The first d brings up the Changes tab; the next fills the window with it.
+        if (!this.fullDiff && this.details.currentTab !== "changes") this.details.setTab("changes");
+        else this.toggleFullDiff();
         return true;
       case "y":
         this.startPlaced("duplicate", this.selected);
@@ -516,11 +539,19 @@ export class RepoView {
     return false;
   }
 
-  /** d: the details panel fills the window, as jjui's diff view does. j / k still move. */
+  /** d: the details panel fills the window, as jjui's diff view does. ↑ / ↓ move between files, j / k between commits. */
   private toggleFullDiff() {
+    this.setDetailsMin(false);
     this.fullDiff = !this.fullDiff;
     if (this.fullDiff) this.details.setTab("changes");
     this.root.classList.toggle("full-diff", this.fullDiff);
+  }
+
+  private setDetailsMin(min: boolean) {
+    if (this.detailsMin === min) return;
+    this.detailsMin = min;
+    this.root.classList.toggle("details-min", min);
+    this.render();
   }
 
   /** ⇧B: point a bookmark at the commit, creating it or moving it there. */
@@ -907,7 +938,7 @@ export class RepoView {
     this.act(`Edit ${row.changeId.slice(0, 8)}`, () => jj.edit(this.path, row.commitId), { undo: true });
   }
 
-  private async describe(row: LogRow) {
+  private async describe(row: LogRow, stayOnCommit = false) {
     // The log only has the summary; the diff carries the full message.
     let message = row.summary;
     try {
@@ -915,7 +946,7 @@ export class RepoView {
     } catch {
       // Edit the summary rather than nothing.
     }
-    const edited = await this.details.editDescription(row, message);
+    const edited = await this.details.editDescription(row, message, stayOnCommit);
     if (edited === null || edited.trim() === message.trim()) return;
     this.act(`Describe ${row.changeId.slice(0, 8)}`, () => jj.describe(this.path, row.commitId, edited), { undo: true });
   }
