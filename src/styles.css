@@ -24,6 +24,18 @@
   --hunk-bg: #f1f4f9;
   --gutter: #b0b0b6;
 
+  /* Syntax colours, Xcode-like. */
+  --syn-keyword: #9b2393;
+  --syn-string: #c41a16;
+  --syn-comment: #707f8c;
+  --syn-number: #1c00cf;
+  --syn-type: #0b4f79;
+  --syn-function: #326d74;
+  --syn-builtin: #6c36a9;
+  --syn-attr: #815f03;
+  --syn-meta: #643820;
+  --syn-variable: #0f68a0;
+
   /* Lane colours by column. */
   --lane-0: #f5a623;
   --lane-1: #edc100;
@@ -61,6 +73,17 @@
     --del-text: #f2726a;
     --hunk-bg: #262a31;
     --gutter: #5d5d63;
+
+    --syn-keyword: #ff7ab2;
+    --syn-string: #ff8170;
+    --syn-comment: #7f8c98;
+    --syn-number: #d9c97c;
+    --syn-type: #6bdfff;
+    --syn-function: #67b7a4;
+    --syn-builtin: #dabaff;
+    --syn-attr: #ffa14f;
+    --syn-meta: #fd8f3f;
+    --syn-variable: #4eb0cc;
 
     --lane-0: #f7ad35;
     --lane-1: #f2cd2a;
@@ -985,4 +1008,80 @@ body.resizing-columns * {
 .details-body.commit-mode #split-info,
 .details-body.commit-mode .diff-view {
   display: none;
+}
+
+/* Syntax highlighting (highlight.js classes). */
+.hljs-keyword,
+.hljs-literal,
+.hljs-selector-tag,
+.hljs-doctag {
+  color: var(--syn-keyword);
+  font-weight: 600;
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-char,
+.hljs-addition,
+.hljs-template-tag {
+  color: var(--syn-string);
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--syn-comment);
+  font-style: italic;
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--syn-number);
+}
+
+.hljs-type,
+.hljs-title.class_,
+.hljs-title.class_.inherited__,
+.hljs-section,
+.hljs-tag {
+  color: var(--syn-type);
+}
+
+.hljs-title,
+.hljs-title.function_,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--syn-function);
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: var(--syn-builtin);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property {
+  color: var(--syn-attr);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword,
+.hljs-deletion {
+  color: var(--syn-meta);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-subst {
+  color: var(--syn-variable);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
 }

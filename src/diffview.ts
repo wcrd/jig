@@ -2,6 +2,7 @@
 // chunk at a time or all at once, plus a plain file view for the browser.
 
 import { escapeHtml } from "./format";
+import { highlightLines, type Segment } from "./highlight";
 import type { DiffLine, FileDiff } from "./types";
 
 /** Lines revealed per click on an expand control. */
@@ -66,9 +67,16 @@ export function expandGap(expansion: Expansion, gap: number, direction: "up" | "
 
 /**
  * The diff body. `lines` is the new file's text once loaded; until then gaps
- * show their controls but no text.
+ * show their controls but no text. `newHighlight` is that text highlighted,
+ * which colours context better than highlighting the hunks alone.
  */
-export function diffBodyHtml(file: FileDiff, expansion: Expansion, lines: string[] | null): string {
+export function diffBodyHtml(
+  file: FileDiff,
+  expansion: Expansion,
+  lines: string[] | null,
+  language: string | null,
+  newHighlight: Segment[][] | null,
+): string {
   if (file.binary) return `<div class="placeholder-text">Binary file not shown</div>`;
   if (file.omitted) return `<div class="placeholder-text">Diff too large to show</div>`;
   if (file.hunks.length === 0) {
@@ -77,6 +85,7 @@ export function diffBodyHtml(file: FileDiff, expansion: Expansion, lines: string
 
   const gaps = gapsOf(file);
   const last = gaps.length - 1;
+  const hunkSegments = language ? hunkHighlights(file, language) : null;
   let html = `<div class="diff-lines">`;
 
   gaps.forEach((gap, g) => {
@@ -100,21 +109,22 @@ export function diffBodyHtml(file: FileDiff, expansion: Expansion, lines: string
     }
     const hidden = size - top - bottom;
 
-    html += contextLines(lines, gap, gap.from, top);
+    html += contextLines(lines, newHighlight, gap, gap.from, top);
     const hunk = file.hunks[g];
     if (hidden > 0 || (g === 0 && size === 0)) {
       html += gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : "");
     }
-    html += contextLines(lines, gap, gap.to - bottom + 1, bottom);
+    html += contextLines(lines, newHighlight, gap, gap.to - bottom + 1, bottom);
 
     if (hunk) {
       let oldNo = hunk.oldStart;
       let newNo = hunk.newStart;
-      for (const line of hunk.lines) {
+      hunk.lines.forEach((line, i) => {
+        const segments = (line.kind !== "-" && newHighlight?.[newNo - 1]) || hunkSegments?.[g][i] || null;
         const left = line.kind === "+" ? "" : String(oldNo++);
         const right = line.kind === "-" ? "" : String(newNo++);
-        html += lineHtml(line, left, right);
-      }
+        html += lineHtml(line, left, right, segments);
+      });
     }
   });
   return html + `</div>`;
@@ -142,31 +152,102 @@ function gapRow(g: number, hidden: number, first: boolean, last: boolean, header
   return `<div class="line hunk"><span class="no gap-controls">${arrows}</span><span class="code">${label}${escapeHtml(header)}</span></div>`;
 }
 
-function contextLines(lines: string[] | null, gap: Gap, from: number, count: number): string {
+function contextLines(
+  lines: string[] | null,
+  highlight: Segment[][] | null,
+  gap: Gap,
+  from: number,
+  count: number,
+): string {
   if (!lines || count <= 0) return "";
   let html = "";
   for (let n = from; n < from + count; n++) {
     const text = lines[n - 1] ?? "";
-    html += `<div class="line ctx"><span class="no">${gap.oldFrom + (n - gap.from)}</span><span class="no">${n}</span><span class="code">${escapeHtml(text) || " "}</span></div>`;
+    const code = codeHtml([[false, text]], highlight?.[n - 1] ?? null);
+    html += `<div class="line ctx"><span class="no">${gap.oldFrom + (n - gap.from)}</span><span class="no">${n}</span><span class="code">${code}</span></div>`;
   }
   return html;
 }
 
-function lineHtml(line: DiffLine, left: string, right: string): string {
+function lineHtml(line: DiffLine, left: string, right: string, segments: Segment[] | null): string {
   const cls = line.kind === "+" ? "add" : line.kind === "-" ? "del" : "ctx";
-  let code = "";
-  for (const [changed, text] of line.tokens) {
-    const escaped = escapeHtml(text);
-    code += changed && line.kind !== " " ? `<span class="w">${escaped}</span>` : escaped;
+  const tokens = line.kind === " " ? line.tokens.map(([, t]) => [false, t] as [boolean, string]) : line.tokens;
+  return `<div class="line ${cls}"><span class="no">${left}</span><span class="no">${right}</span><span class="code">${codeHtml(tokens, segments)}</span></div>`;
+}
+
+/**
+ * Renders a line's text, combining word-level changes (`tokens`) with syntax
+ * highlighting (`segments`). Both split the same text, so this walks them
+ * together, starting a new span wherever either changes.
+ */
+function codeHtml(tokens: [boolean, string][], segments: Segment[] | null): string {
+  const text = tokens.map(([, t]) => t).join("");
+  if (!segments || segments.map(([, t]) => t).join("") !== text) {
+    // No highlighting, or it doesn't line up with this text.
+    let html = "";
+    for (const [changed, t] of tokens) html += changed ? `<span class="w">${escapeHtml(t)}</span>` : escapeHtml(t);
+    return html || " ";
   }
-  return `<div class="line ${cls}"><span class="no">${left}</span><span class="no">${right}</span><span class="code">${code || " "}</span></div>`;
+  let html = "";
+  let ti = 0;
+  let tOffset = 0;
+  let si = 0;
+  let sOffset = 0;
+  while (ti < tokens.length && si < segments.length) {
+    const [changed, tText] = tokens[ti];
+    const [cls, sText] = segments[si];
+    const take = Math.min(tText.length - tOffset, sText.length - sOffset);
+    const piece = escapeHtml(sText.slice(sOffset, sOffset + take));
+    const classes = [cls, changed ? "w" : ""].filter(Boolean).join(" ");
+    html += classes ? `<span class="${classes}">${piece}</span>` : piece;
+    tOffset += take;
+    sOffset += take;
+    if (tOffset === tText.length) {
+      ti++;
+      tOffset = 0;
+    }
+    if (sOffset === sText.length) {
+      si++;
+      sOffset = 0;
+    }
+  }
+  return html || " ";
+}
+
+// Highlighting of each side of each hunk, for when the whole file isn't
+// loaded (and always for removed lines). Indexed by hunk, then line.
+const hunkCache = new WeakMap<FileDiff, (Segment[] | null)[][]>();
+
+function hunkHighlights(file: FileDiff, language: string): (Segment[] | null)[][] | null {
+  if (!hunkCache.has(file)) {
+    try {
+      hunkCache.set(
+        file,
+        file.hunks.map((hunk) => {
+          const text = (line: DiffLine) => line.tokens.map(([, t]) => t).join("");
+          const oldSide = highlightLines(hunk.lines.filter((l) => l.kind !== "+").map(text).join("\n"), language);
+          const newSide = highlightLines(hunk.lines.filter((l) => l.kind !== "-").map(text).join("\n"), language);
+          let o = 0;
+          let n = 0;
+          return hunk.lines.map((line) => {
+            if (line.kind === "-") return oldSide[o++] ?? null;
+            if (line.kind === " ") o++;
+            return newSide[n++] ?? null;
+          });
+        }),
+      );
+    } catch {
+      return null;
+    }
+  }
+  return hunkCache.get(file)!;
 }
 
 /** A whole file with line numbers, for the file browser. */
-export function fileBodyHtml(lines: string[]): string {
+export function fileBodyHtml(lines: string[], highlight: Segment[][] | null): string {
   let html = `<div class="diff-lines single">`;
   lines.forEach((text, i) => {
-    html += `<div class="line ctx"><span class="no">${i + 1}</span><span class="code">${escapeHtml(text) || " "}</span></div>`;
+    html += `<div class="line ctx"><span class="no">${i + 1}</span><span class="code">${codeHtml([[false, text]], highlight?.[i] ?? null)}</span></div>`;
   });
   return html + `</div>`;
 }

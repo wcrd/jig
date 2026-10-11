@@ -13,6 +13,7 @@ import {
   splitLines,
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
+import { highlightCached, languageFor, type Segment } from "./highlight";
 import { avatarHue, escapeHtml, formatFullDate, initials } from "./format";
 import type { CommitDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
@@ -379,11 +380,16 @@ export class DetailsPanel {
     const key = this.key(file.path);
     const expansion = this.expansions.get(key) ?? newExpansion();
     // Use the file's text only if it's already been fetched for expanding.
+    const language = languageFor(file.path);
     let lines: string[] | null = null;
+    let highlight: Segment[][] | null = null;
     if (this.texts.has(key)) {
       const text = await this.texts.get(key)!.catch(() => null);
       if (this.diff?.files[this.fileIndex] !== file) return;
-      lines = text?.text != null ? splitLines(text.text) : null;
+      if (text?.text != null) {
+        lines = splitLines(text.text);
+        highlight = highlightCached(text, text.text, language);
+      }
     }
     const canExpand = !file.binary && !file.omitted && file.status !== "deleted" && file.hunks.length > 0;
     const fullButton = canExpand
@@ -396,7 +402,7 @@ export class DetailsPanel {
       `<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${rename}${escapeHtml(file.path)}</span>` +
       (file.conflict ? `<span class="pill flag conflict"><span class="label">conflict</span></span>` : "") +
       `<span class="header-buttons">${fullButton}</span></div>` +
-      `<div class="diff-body">${diffBodyHtml(file, expansion, lines)}</div>`;
+      `<div class="diff-body">${diffBodyHtml(file, expansion, lines, language, highlight)}</div>`;
     this.el.view.scrollTop = resetScroll ? 0 : scrollTop;
     this.el.view.scrollLeft = resetScroll ? 0 : scrollLeft;
   }
@@ -463,7 +469,7 @@ export class DetailsPanel {
     if (this.treePath !== path || this.row !== row || this.tab !== "tree") return;
     const body =
       text.text != null
-        ? fileBodyHtml(splitLines(text.text))
+        ? fileBodyHtml(splitLines(text.text), highlightCached(text, text.text, languageFor(path)))
         : `<div class="placeholder-text">${text.binary ? "Binary file not shown" : text.tooLarge ? "File too large to show" : "Not a regular file"}</div>`;
     this.el.view.innerHTML = header + `<div class="diff-body">${body}</div>`;
     this.el.view.scrollTop = 0;
