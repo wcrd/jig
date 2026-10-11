@@ -1,7 +1,7 @@
 // Builds the DOM for one commit row: description with ref pills, then the
 // author, change ID, commit ID and date columns.
 
-import { agentFor, avatarHtml } from "./agents";
+import { agentCornerHtml, agentFor, avatarHtml } from "./agents";
 import { escapeHtml, formatDate, formatFullDate, splitConventional } from "./format";
 import { ROW_HEIGHT, laneColor, textX, type Graph } from "./graph";
 import type { LogRow, RefLabel } from "./types";
@@ -96,10 +96,17 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Gr
 function authorHtml(row: LogRow): string {
   const people = [{ name: row.authorName, email: row.authorEmail }, ...row.coauthors];
   const title = people.map((p) => (p.email ? `${p.name} <${p.email}>` : p.name)).join("\n");
-  const avatars = people
-    .slice(0, 3)
+  // AI agents get a small badge on the author's avatar; people stack behind it.
+  const agents = row.coauthors.filter((c) => agentFor(c.name, c.email));
+  const humans = row.coauthors.filter((c) => !agentFor(c.name, c.email));
+  const behind = humans
+    .slice(0, 2)
     .map((p) => avatarHtml(p.name, p.email))
     .join("");
+  const badge = agents.length ? agentCornerHtml(agents[0].name, agents[0].email) : "";
+  const avatars =
+    `<span class="avatars">${behind}<span class="avatar-wrap">${avatarHtml(row.authorName, row.authorEmail)}${badge}</span></span>`;
+
   let extra = "";
   if (row.coauthors.length === 1) {
     const co = row.coauthors[0];
@@ -109,8 +116,5 @@ function authorHtml(row: LogRow): string {
   } else if (row.coauthors.length > 1) {
     extra = ` <span class="coauthors">+ ${row.coauthors.length}</span>`;
   }
-  return (
-    `<div class="author" title="${escapeHtml(title)}"><span class="avatars">${avatars}</span>` +
-    `<span class="name">${escapeHtml(row.authorName)}${extra}</span></div>`
-  );
+  return `<div class="author" title="${escapeHtml(title)}">${avatars}<span class="name">${escapeHtml(row.authorName)}${extra}</span></div>`;
 }

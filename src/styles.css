@@ -1210,10 +1210,18 @@ body > .empty {
   display: flex;
 }
 
-/* Co-author avatars overlap the author's, ringed to separate them. */
-.avatars .avatar + .avatar {
-  margin-left: -5px;
+/* Human co-authors peek out from behind the author's avatar. */
+.avatars > .avatar {
+  margin-right: -6px;
   box-shadow: 0 0 0 1.5px var(--node-bg, var(--bg));
+  opacity: 0.85;
+}
+
+.avatar-wrap {
+  position: relative;
+  display: flex;
+  box-shadow: 0 0 0 1.5px var(--node-bg, var(--bg));
+  border-radius: 3px;
 }
 
 .avatar.agent {
@@ -1227,9 +1235,23 @@ body > .empty {
   height: 70%;
 }
 
-.avatars .avatar.agent + .avatar,
-.avatars .avatar + .avatar.agent {
-  box-shadow: 0 0 0 1.5px var(--node-bg, var(--bg)), inset 0 0 0 1px var(--border);
+/* An AI co-author's logo, small, on the author's lower-right corner. */
+.agent-corner {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+  display: grid;
+  place-items: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--node-bg, var(--bg));
+  color: var(--text);
+}
+
+.agent-corner svg {
+  width: 8px;
+  height: 8px;
 }
 
 .avatar.medium {

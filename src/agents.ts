@@ -109,3 +109,11 @@ export function agentBadge(name: string, email: string): string {
   const agent = agentFor(name, email);
   return agent ? `<span class="agent-badge">AI</span>` : "";
 }
+
+/** A small agent logo for the corner of another avatar. */
+export function agentCornerHtml(name: string, email: string): string {
+  const agent = agentFor(name, email);
+  if (!agent) return "";
+  const color = agent.color ? ` style="color:${agent.color}"` : "";
+  return `<span class="agent-corner"${color}><svg viewBox="0 0 24 24"><path d="${agent.path}" fill="currentColor"/></svg></span>`;
+}
