@@ -36,17 +36,27 @@
   --syn-meta: #643820;
   --syn-variable: #0f68a0;
 
-  /* Lane colours by column. */
-  --lane-0: #f5a623;
-  --lane-1: #edc100;
-  --lane-2: #e8453c;
-  --lane-3: #a68a64;
-  --lane-4: #5dbb3f;
-  --lane-5: #2e95e8;
-  --lane-6: #b455d9;
-  --lane-7: #e0528f;
-  --lane-8: #17a89e;
-  --lane-9: #7a7fe0;
+  /* UI colours for badges, mode bars and selection; separate from the lanes
+     so the graph palette can change without recolouring the interface. */
+  --ui-orange: #f5a623;
+  --ui-yellow: #edc100;
+  --ui-red: #e8453c;
+  --ui-green: #5dbb3f;
+  --ui-blue: #2e95e8;
+  --ui-purple: #b455d9;
+
+  /* Lane colours by column (Radix Colors step 9). No red, which is kept for
+     conflicts. */
+  --lane-0: #6e56cf;
+  --lane-1: #12a594;
+  --lane-2: #f76b15;
+  --lane-3: #0090ff;
+  --lane-4: #d6409f;
+  --lane-5: #46a758;
+  --lane-6: #3e63dd;
+  --lane-7: #d99a00;
+  --lane-8: #a18072;
+  --lane-9: #00a2c7;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -85,16 +95,23 @@
     --syn-meta: #fd8f3f;
     --syn-variable: #4eb0cc;
 
-    --lane-0: #f7ad35;
-    --lane-1: #f2cd2a;
-    --lane-2: #f05a51;
-    --lane-3: #b89b74;
-    --lane-4: #6fcf4f;
-    --lane-5: #45a5f0;
-    --lane-6: #c46ce6;
-    --lane-7: #ec68a0;
-    --lane-8: #2bbcb1;
-    --lane-9: #8d92ec;
+    --ui-orange: #f7ad35;
+    --ui-yellow: #f2cd2a;
+    --ui-red: #f05a51;
+    --ui-green: #6fcf4f;
+    --ui-blue: #45a5f0;
+    --ui-purple: #c46ce6;
+
+    --lane-0: #8e7cf0;
+    --lane-1: #2ec4b2;
+    --lane-2: #ff8a3d;
+    --lane-3: #3aa8ff;
+    --lane-4: #e866b8;
+    --lane-5: #5fc075;
+    --lane-6: #6683f0;
+    --lane-7: #f2b82f;
+    --lane-8: #b89a8c;
+    --lane-9: #2bbde0;
   }
 }
 
@@ -338,7 +355,7 @@ select {
 }
 
 .empty-tag {
-  color: var(--lane-4);
+  color: var(--ui-green);
   font-weight: normal;
 }
 
@@ -414,7 +431,7 @@ select {
 }
 
 .pill.flag.divergent {
-  --pill: var(--lane-6);
+  --pill: var(--ui-purple);
 }
 
 /* Right-hand columns */
@@ -761,20 +778,20 @@ body.resizing-columns * {
 }
 
 .status.added {
-  background: var(--lane-4);
+  background: var(--ui-green);
 }
 
 .status.modified {
-  background: var(--lane-0);
+  background: var(--ui-orange);
 }
 
 .status.deleted {
-  background: var(--lane-2);
+  background: var(--ui-red);
 }
 
 .status.renamed,
 .status.copied {
-  background: var(--lane-5);
+  background: var(--ui-blue);
 }
 
 .status.conflict {
@@ -1703,8 +1720,8 @@ dialog.prompt input:focus {
   gap: 8px;
   min-height: 36px;
   padding: 4px 10px;
-  background: color-mix(in srgb, var(--lane-5) 12%, var(--toolbar-bg));
-  border-bottom: 1px solid color-mix(in srgb, var(--lane-5) 35%, var(--border));
+  background: color-mix(in srgb, var(--ui-blue) 12%, var(--toolbar-bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--ui-blue) 35%, var(--border));
   font-size: 12px;
   white-space: nowrap;
 }
@@ -1735,7 +1752,7 @@ dialog.prompt input:focus {
 }
 
 .segmented button.active {
-  background: var(--lane-5);
+  background: var(--ui-blue);
   color: #fff;
 }
 
@@ -1764,8 +1781,8 @@ dialog.prompt input:focus {
 }
 
 .modebar-actions button.primary {
-  border-color: var(--lane-5);
-  background: var(--lane-5);
+  border-color: var(--ui-blue);
+  background: var(--ui-blue);
   color: #fff;
 }
 
@@ -1774,8 +1791,8 @@ dialog.prompt input:focus {
 }
 
 .row.rebase-moving {
-  --node-bg: color-mix(in srgb, var(--lane-5) 10%, var(--bg));
-  background: color-mix(in srgb, var(--lane-5) 10%, var(--bg));
+  --node-bg: color-mix(in srgb, var(--ui-blue) 10%, var(--bg));
+  background: color-mix(in srgb, var(--ui-blue) 10%, var(--bg));
 }
 
 .row.rebase-moving .summary {
@@ -1785,15 +1802,15 @@ dialog.prompt input:focus {
 /* The destination: outlined for "onto", a bar where it'll be inserted for
    after (above the target) or before (below it). */
 .row.rebase-target {
-  box-shadow: inset 0 0 0 2px var(--lane-5);
+  box-shadow: inset 0 0 0 2px var(--ui-blue);
 }
 
 .row.rebase-target[data-placement="after"] {
-  box-shadow: inset 0 3px 0 var(--lane-5);
+  box-shadow: inset 0 3px 0 var(--ui-blue);
 }
 
 .row.rebase-target[data-placement="before"] {
-  box-shadow: inset 0 -3px 0 var(--lane-5);
+  box-shadow: inset 0 -3px 0 var(--ui-blue);
 }
 
 .repo-view.dragging,
@@ -1837,13 +1854,13 @@ dialog.prompt input:focus {
 }
 
 .modebar.squash {
-  background: color-mix(in srgb, var(--lane-6) 12%, var(--toolbar-bg));
-  border-bottom-color: color-mix(in srgb, var(--lane-6) 35%, var(--border));
+  background: color-mix(in srgb, var(--ui-purple) 12%, var(--toolbar-bg));
+  border-bottom-color: color-mix(in srgb, var(--ui-purple) 35%, var(--border));
 }
 
 .modebar.squash .modebar-actions button.primary {
-  border-color: var(--lane-6);
-  background: var(--lane-6);
+  border-color: var(--ui-purple);
+  background: var(--ui-purple);
 }
 
 dialog.prompt.editor {
@@ -1891,8 +1908,8 @@ dialog.prompt textarea:focus {
 
 .check.on,
 .check.some {
-  border-color: var(--lane-5);
-  background: var(--lane-5);
+  border-color: var(--ui-blue);
+  background: var(--ui-blue);
 }
 
 .check.on::after {
@@ -1933,13 +1950,13 @@ dialog.prompt textarea:focus {
 }
 
 .modebar.split {
-  background: color-mix(in srgb, var(--lane-4) 12%, var(--toolbar-bg));
-  border-bottom-color: color-mix(in srgb, var(--lane-4) 35%, var(--border));
+  background: color-mix(in srgb, var(--ui-green) 12%, var(--toolbar-bg));
+  border-bottom-color: color-mix(in srgb, var(--ui-green) 35%, var(--border));
 }
 
 .modebar.split .modebar-actions button.primary {
-  border-color: var(--lane-4);
-  background: var(--lane-4);
+  border-color: var(--ui-green);
+  background: var(--ui-green);
 }
 
 /* Operation log: replaces the graph and details, inset in a grey frame. */
@@ -2056,7 +2073,7 @@ dialog.prompt textarea:focus {
   margin-right: 8px;
   padding: 0 5px;
   border-radius: 3px;
-  background: var(--lane-5);
+  background: var(--ui-blue);
   color: #fff;
   font-size: 10px;
   font-weight: 700;
@@ -2194,23 +2211,23 @@ dialog.prompt textarea:focus {
 }
 
 .opd-kind.added {
-  background: var(--lane-4);
+  background: var(--ui-green);
 }
 
 .opd-kind.rewritten {
-  background: var(--lane-5);
+  background: var(--ui-blue);
 }
 
 .opd-kind.removed {
-  background: var(--lane-2);
+  background: var(--ui-red);
 }
 
 .opd-kind.bookmark {
-  background: var(--lane-0);
+  background: var(--ui-orange);
 }
 
 .opd-kind.wc {
-  background: var(--lane-1);
+  background: var(--ui-yellow);
 }
 
 .opd-summary {
@@ -2238,11 +2255,11 @@ dialog.prompt textarea:focus {
 }
 
 .state.divergent {
-  color: var(--lane-6);
+  color: var(--ui-purple);
 }
 
 .divergent-mark {
-  color: var(--lane-6);
+  color: var(--ui-purple);
   font: 600 12px ui-monospace, "SF Mono", Menlo, monospace;
 }
 
@@ -2293,8 +2310,8 @@ dialog.prompt textarea:focus {
 }
 
 .header-button.primary {
-  border-color: var(--lane-4);
-  background: var(--lane-4);
+  border-color: var(--ui-green);
+  background: var(--ui-green);
   color: #fff;
 }
 
@@ -2345,11 +2362,11 @@ dialog.prompt textarea:focus {
 }
 
 .mlabel.left {
-  color: var(--lane-5);
+  color: var(--ui-blue);
 }
 
 .mlabel.right {
-  color: var(--lane-4);
+  color: var(--ui-green);
 }
 
 .merge.stacked .mlabel.result {
@@ -2406,11 +2423,11 @@ dialog.prompt textarea:focus {
 }
 
 .mblock.conflict .mcell.left {
-  background: color-mix(in srgb, var(--lane-5) 9%, var(--bg));
+  background: color-mix(in srgb, var(--ui-blue) 9%, var(--bg));
 }
 
 .mblock.conflict .mcell.right {
-  background: color-mix(in srgb, var(--lane-4) 9%, var(--bg));
+  background: color-mix(in srgb, var(--ui-green) 9%, var(--bg));
 }
 
 .mblock.conflict.unresolved .mcell.result {
@@ -2449,12 +2466,12 @@ dialog.prompt textarea:focus {
 
 .mcell.left .mtake {
   right: 4px;
-  color: var(--lane-5);
+  color: var(--ui-blue);
 }
 
 .mcell.right .mtake {
   left: 4px;
-  color: var(--lane-4);
+  color: var(--ui-green);
 }
 
 .mcell.right pre {
@@ -2653,7 +2670,7 @@ dialog.prompt.help {
 }
 
 .sidebar-item .flag.tracked {
-  color: var(--lane-5);
+  color: var(--ui-blue);
   display: grid;
   place-items: center;
 }
