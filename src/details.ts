@@ -20,6 +20,11 @@ import { escapeHtml, formatFullDate, reflowMessage } from "./format";
 import type { CommitDiff, CompareDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
 export type DetailsTab = "commit" | "changes" | "tree";
+
+/** Which changes go into the first commit of a split, as sent to `jj_split`. */
+export interface SplitPlan {
+  files: Record<string, { all: boolean; hunks: number[] }>;
+}
 type ChangesView = "list" | "tree";
 
 const STATUS_LETTER: Record<FileStatus, string> = {
@@ -42,6 +47,8 @@ export interface DetailsSource {
   treeFiles(commitId: string): Promise<TreeEntry[]>;
   /** Right-click on a changed file (not in compare mode). */
   fileMenu(path: string): void;
+  /** The split selection changed. */
+  splitChanged(): void;
   /** Swap the direction of the current comparison. */
   swapCompare(): void;
   /** Select a commit in the graph by change ID, e.g. when a parent is clicked. */
@@ -91,6 +98,12 @@ export class DetailsPanel {
   private treePath: string | null = null;
   private treeOrder: number[] = [];
 
+  /**
+   * In split mode, what's ticked for the first commit, by path: every change
+   * in the file, or some of its hunks. Unlisted files stay in the second.
+   */
+  private split: Map<string, "all" | Set<number>> | null = null;
+
   /** Draws only the visible lines of large diffs and files. */
   private virtual: VirtualLines;
 
@@ -126,6 +139,11 @@ export class DetailsPanel {
     });
     el.fileList.addEventListener("mousedown", (event) => {
       const target = event.target as HTMLElement;
+      const check = target.closest<HTMLElement>("[data-check]");
+      if (check) {
+        this.toggleSplitFile(Number(check.dataset.check));
+        return;
+      }
       const folder = target.closest<HTMLElement>("[data-folder]");
       if (folder) {
         this.toggleFolder(folder.dataset.folder!);
@@ -144,6 +162,13 @@ export class DetailsPanel {
     el.info.addEventListener("click", (event) => {
       const parent = (event.target as HTMLElement).closest<HTMLElement>("[data-change]");
       if (parent) source.selectChange(parent.dataset.change!);
+    });
+    el.view.addEventListener("mousedown", (event) => {
+      const check = (event.target as HTMLElement).closest<HTMLElement>("[data-hunk-check]");
+      if (check) {
+        event.preventDefault();
+        this.toggleSplitHunk(Number(check.dataset.hunkCheck));
+      }
     });
     el.view.addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLElement>("button");
@@ -176,6 +201,7 @@ export class DetailsPanel {
 
   show(row: LogRow, diff: CommitDiff) {
     const previousPath = this.diff?.files[this.fileIndex]?.path;
+    if (this.split && this.row?.commitId !== row.commitId) this.split = new Map();
     this.compareFrom = null;
     this.row = row;
     this.diff = diff;
@@ -260,6 +286,82 @@ export class DetailsPanel {
     } else {
       context.innerHTML = `${id(to)} <span class="ctx-summary" title="${escapeHtml(to.summary)}">${summary(to)}</span>`;
     }
+  }
+
+  startSplit() {
+    this.split = new Map();
+    if (this.tab !== "changes") this.setTab("changes");
+    else {
+      this.renderLeft();
+      this.renderRight();
+    }
+  }
+
+  endSplit() {
+    if (!this.split) return;
+    this.split = null;
+    this.renderLeft();
+    this.renderRight();
+  }
+
+  /** Counts of hunks ticked and in total (a file without hunks counts as one). */
+  splitCounts(): { selected: number; total: number } {
+    let selected = 0;
+    let total = 0;
+    for (const file of this.diff?.files ?? []) {
+      const size = Math.max(1, file.hunks.length);
+      total += size;
+      const state = this.split?.get(file.path);
+      selected += state === "all" ? size : (state?.size ?? 0);
+    }
+    return { selected, total };
+  }
+
+  splitPlan(): SplitPlan {
+    const files: SplitPlan["files"] = {};
+    for (const file of this.diff?.files ?? []) {
+      const state = this.split?.get(file.path);
+      if (!state) continue;
+      const all = state === "all" || state.size === file.hunks.length;
+      files[file.path] = { all, hunks: all ? [] : [...state].sort((a, b) => a - b) };
+      // A rename's source disappears along with it.
+      if (all && file.sourcePath && file.status === "renamed") files[file.sourcePath] = { all: true, hunks: [] };
+    }
+    return { files };
+  }
+
+  private fileSplitState(file: FileDiff): "none" | "some" | "all" {
+    const state = this.split?.get(file.path);
+    if (!state) return "none";
+    if (state === "all" || state.size === file.hunks.length) return "all";
+    return "some";
+  }
+
+  private toggleSplitFile(index: number) {
+    const file = this.diff?.files[index];
+    if (!file || !this.split) return;
+    if (this.fileSplitState(file) === "all") this.split.delete(file.path);
+    else this.split.set(file.path, "all");
+    this.splitUpdated();
+  }
+
+  private toggleSplitHunk(hunk: number) {
+    const file = this.diff?.files[this.fileIndex];
+    if (!file || !this.split) return;
+    let state = this.split.get(file.path);
+    const set = state === "all" ? new Set(file.hunks.map((_, i) => i)) : new Set(state ?? []);
+    if (set.has(hunk)) set.delete(hunk);
+    else set.add(hunk);
+    state = set.size === 0 ? undefined : set.size === file.hunks.length ? "all" : set;
+    if (state) this.split.set(file.path, state);
+    else this.split.delete(file.path);
+    this.splitUpdated();
+  }
+
+  private splitUpdated() {
+    this.renderLeft();
+    this.renderDiff(false);
+    this.source.splitChanged();
   }
 
   showError(message: string) {
@@ -360,7 +462,11 @@ export class DetailsPanel {
         ? ""
         : `<span class="add">+${file.additions}</span> <span class="del">−${file.deletions}</span>`;
     const title = file.sourcePath ? `${file.sourcePath} → ${file.path}` : file.path;
-    return `${statusBadge(file.status, file.conflict)}<span class="path" title="${escapeHtml(title)}"><span class="name">${escapeHtml(name)}</span>${dir ? `<span class="dir">${escapeHtml(dir)}</span>` : ""}</span><span class="stats">${stats}</span>`;
+    const index = this.diff!.files.indexOf(file);
+    const check = this.split
+      ? `<span class="check ${{ none: "", some: "some", all: "on" }[this.fileSplitState(file)]}" data-check="${index}" title="Include in the first commit"></span>`
+      : "";
+    return `${check}${statusBadge(file.status, file.conflict)}<span class="path" title="${escapeHtml(title)}"><span class="name">${escapeHtml(name)}</span>${dir ? `<span class="dir">${escapeHtml(dir)}</span>` : ""}</span><span class="stats">${stats}</span>`;
   }
 
   private async renderRepoTree() {
@@ -515,7 +621,10 @@ export class DetailsPanel {
       (file.conflict ? `<span class="pill flag conflict"><span class="label">conflict</span></span>` : "") +
       `<span class="header-buttons">${fullButton}</span></div>` +
       `<div class="diff-body"></div>`;
-    this.showLines(diffLines(file, expansion, lines, language, highlight));
+    const split = this.split;
+    const state = split?.get(file.path);
+    const ticked = split ? (hunk: number) => state === "all" || !!state?.has(hunk) : null;
+    this.showLines(diffLines(file, expansion, lines, language, highlight, ticked));
     this.el.view.scrollTop = resetScroll ? 0 : scrollTop;
     this.el.view.scrollLeft = resetScroll ? 0 : scrollLeft;
   }

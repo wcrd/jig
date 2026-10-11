@@ -23,7 +23,7 @@ use jj_lib::store::Store;
 use jj_lib::repo_path::RepoPathBuf;
 use serde::Serialize;
 
-const CONTEXT_LINES: usize = 3;
+pub(crate) const CONTEXT_LINES: usize = 3;
 /// Files bigger than this aren't diffed unless asked for explicitly: huge
 /// files (minified code, data dumps) can take seconds to diff.
 const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;

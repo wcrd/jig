@@ -563,6 +563,59 @@ pub fn head_op_id(path: &Path) -> Result<String> {
     })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpEntry {
+    pub id: String,
+    pub short_id: String,
+    pub description: String,
+    /// End time, milliseconds since the epoch.
+    pub time: i64,
+    /// `user@host`.
+    pub user: String,
+    /// The head operation.
+    pub current: bool,
+    /// A pure working-copy snapshot.
+    pub snapshot: bool,
+}
+
+/// The operation log, newest first, following first parents from the head.
+pub fn op_log(path: &Path, limit: usize) -> Result<Vec<OpEntry>> {
+    pollster::block_on(async {
+        let root = find_workspace_root(path)
+            .ok_or_else(|| anyhow!("{} is not inside a jj repository", path.display()))?;
+        let loader = DefaultWorkspaceLoaderFactory.create(&root)?;
+        let settings = read_settings(loader.repo_path(), &root)?;
+        let workspace = loader.load(
+            &settings.settings,
+            &StoreFactories::default(),
+            &default_working_copy_factories(),
+        )?;
+        let repo = load_at_head(&workspace).await?;
+        let head = repo.operation().clone();
+        let mut entries = Vec::new();
+        let mut op = head.clone();
+        while entries.len() < limit {
+            let meta = op.metadata();
+            let id = op.id().hex();
+            entries.push(OpEntry {
+                short_id: id[..12.min(id.len())].to_owned(),
+                current: op.id() == head.id(),
+                description: meta.description.clone(),
+                time: meta.time.end.timestamp.0,
+                user: format!("{}@{}", meta.username, meta.hostname),
+                snapshot: meta.is_snapshot,
+                id,
+            });
+            let Some(parent) = op.parents().await?.into_iter().next() else {
+                break;
+            };
+            op = parent;
+        }
+        Ok(entries)
+    })
+}
+
 /// Everything the sidebar lists, read straight from the view so it doesn't
 /// depend on which commits the revset happens to show.
 fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {

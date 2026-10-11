@@ -82,6 +82,8 @@ export function diffLines(
   lines: string[] | null,
   language: string | null,
   newHighlight: Segment[][] | null,
+  /** In split mode, whether each hunk is ticked for the first commit. */
+  split: ((hunk: number) => boolean) | null = null,
 ): LineSet | { placeholder: string } {
   if (file.binary) return { placeholder: "Binary file not shown" };
   if (file.omitted) return { placeholder: "Diff too large to show" };
@@ -123,8 +125,10 @@ export function diffLines(
 
     context(gap.from, top, gap);
     const hunk = file.hunks[g];
-    if (hidden > 0 || (g === 0 && size === 0)) {
-      rows.push(gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : ""));
+    // Splitting needs a header with a checkbox on every hunk.
+    const check = split && hunk ? hunkCheck(g, split(g)) : "";
+    if (hidden > 0 || (g === 0 && size === 0) || check) {
+      rows.push(gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : "", check));
     }
     context(gap.to - bottom + 1, bottom, gap);
 
@@ -136,7 +140,8 @@ export function diffLines(
         const left = line.kind === "+" ? "" : String(oldNo++);
         const right = line.kind === "-" ? "" : String(newNo++);
         maxChars = Math.max(maxChars, displayLength(line.tokens.map(([, t]) => t).join("")));
-        rows.push(lineHtml(line, left, right, segments));
+        const html = lineHtml(line, left, right, segments);
+        rows.push(split && !split(g) ? html.replace('class="line ', 'class="line unselected ') : html);
       });
     }
   });
@@ -150,7 +155,11 @@ function hunkHeader(hunk: { oldStart: number; oldCount: number; newStart: number
 const UP = `<svg viewBox="0 0 12 12" width="10" height="10"><path d="M6 9.5v-7M2.8 5.5L6 2.3l3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const DOWN = `<svg viewBox="0 0 12 12" width="10" height="10"><path d="M6 2.5v7M2.8 6.5L6 9.7l3.2-3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-function gapRow(g: number, hidden: number, first: boolean, last: boolean, header: string): string {
+function hunkCheck(hunk: number, checked: boolean): string {
+  return `<span class="check${checked ? " on" : ""}" data-hunk-check="${hunk}" title="Include this hunk in the first commit"></span>`;
+}
+
+function gapRow(g: number, hidden: number, first: boolean, last: boolean, header: string, check = ""): string {
   // Arrows sit in the gutter; the "show all" label goes before the header.
   let arrows = "";
   let label = "";
@@ -162,7 +171,7 @@ function gapRow(g: number, hidden: number, first: boolean, last: boolean, header
     }
     label = `<button class="expand label" data-gap="${g}" data-dir="all" title="Show all ${text}">${hidden <= EXPAND_STEP ? (first ? UP : DOWN) : ""}Show ${text}</button>`;
   }
-  return `<div class="line hunk"><span class="no gap-controls">${arrows}</span><span class="code">${label}${escapeHtml(header)}</span></div>`;
+  return `<div class="line hunk"><span class="no gap-controls">${arrows}</span><span class="code">${check}${label}${escapeHtml(header)}</span></div>`;
 }
 
 function contextLines(

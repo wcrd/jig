@@ -81,9 +81,16 @@ fn jj_binary() -> Result<&'static Path> {
 /// Runs `jj --no-pager --color never -R <root> <args…>` in `root`. Only a
 /// failure to spawn is an `Err`; a non-zero exit is `success: false`.
 pub fn run(root: &Path, args: &[&str]) -> Result<CommandOutput> {
+    run_with_config(root, &[], args)
+}
+
+/// Like [`run`], with `--config <NAME=VALUE>` for each of `configs`.
+pub fn run_with_config(root: &Path, configs: &[String], args: &[&str]) -> Result<CommandOutput> {
     let jj = jj_binary()?;
     let output = Command::new(jj)
-        .args(["--no-pager", "--color", "never", "-R"])
+        .args(["--no-pager", "--color", "never"])
+        .args(configs.iter().flat_map(|c| ["--config", c.as_str()]))
+        .arg("-R")
         .arg(root)
         .args(args)
         .current_dir(root)
@@ -203,6 +210,50 @@ pub fn absorb_args(revision: &str) -> Result<Vec<String>> {
     Ok(strings(&["absorb", "--from", revision]))
 }
 
+/// Hex operation ids only (`@`, `-` and other op-set syntax are rejected).
+pub fn validate_op_id(id: &str) -> Result<()> {
+    // Full operation ids are 128 hex digits.
+    let ok = (1..=128).contains(&id.len()) && id.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'));
+    if !ok {
+        bail!("operation id must be hex: {id:?}");
+    }
+    Ok(())
+}
+
+/// `jj operation restore|revert <op>`.
+pub fn op_args(subcommand: &str, op_id: &str) -> Result<Vec<String>> {
+    validate_op_id(op_id)?;
+    Ok(strings(&["operation", subcommand, op_id]))
+}
+
+/// The `--config` values that make `program` act as the `jork-split` diff
+/// editor, plus the args for `jj split`.
+pub fn split_args(
+    revision: &str,
+    message: Option<&str>,
+    program: &Path,
+    plan: &Path,
+) -> Result<(Vec<String>, Vec<String>)> {
+    validate_revision(revision)?;
+    let quote = |s: &str| serde_json::to_string(s).expect("string serializes");
+    let program = program.to_str().ok_or_else(|| anyhow!("non-UTF-8 program path"))?;
+    let plan = plan.to_str().ok_or_else(|| anyhow!("non-UTF-8 plan path"))?;
+    // TOML values: a JSON string / array of strings is valid TOML.
+    let configs = vec![
+        format!("merge-tools.jork-split.program={}", quote(program)),
+        format!(
+            "merge-tools.jork-split.edit-args=[{}, {}, \"$left\", \"$right\"]",
+            quote("--split-plan"),
+            quote(plan)
+        ),
+    ];
+    let mut args = strings(&["split", "--revision", revision, "--tool", "jork-split"]);
+    if let Some(m) = message {
+        args.push(format!("--message={m}"));
+    }
+    Ok((configs, args))
+}
+
 pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<String>> {
     validate_revision(revision)?;
     validate_revision(into)?;
@@ -310,6 +361,31 @@ mod tests {
         );
         assert_eq!(describe_args("a1", "").unwrap()[1], "--message=");
         assert!(describe_args("nope", "m").is_err());
+    }
+
+    #[test]
+    fn op_and_split_arg_building() {
+        assert_eq!(
+            op_args("restore", "abc123").unwrap(),
+            v(&["operation", "restore", "abc123"])
+        );
+        assert!(op_args("revert", "@").is_err());
+        assert!(op_args("revert", "").is_err());
+        assert!(op_args("revert", &"a".repeat(129)).is_err());
+        let (configs, args) =
+            split_args("a1", Some("-m"), Path::new("/x y/jork"), Path::new("/tmp/p.json")).unwrap();
+        assert_eq!(
+            configs,
+            v(&[
+                r#"merge-tools.jork-split.program="/x y/jork""#,
+                r#"merge-tools.jork-split.edit-args=["--split-plan", "/tmp/p.json", "$left", "$right"]"#,
+            ])
+        );
+        assert_eq!(
+            args,
+            v(&["split", "--revision", "a1", "--tool", "jork-split", "--message=-m"])
+        );
+        assert!(split_args("main", None, Path::new("/j"), Path::new("/p")).is_err());
     }
 
     #[test]

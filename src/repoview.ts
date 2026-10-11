@@ -5,6 +5,7 @@
 import { fetchCompare, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
+import { OpLogPanel } from "./oplog";
 import { Relations } from "./relations";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
@@ -27,7 +28,8 @@ type Placement = "onto" | "after" | "before";
 type Pending =
   | { kind: "rebase"; source: number; mode: RebaseMode; placement: Placement; target: number }
   | { kind: "squash"; source: number; target: number; paths: string[] }
-  | { kind: "abandon"; marked: Set<number> };
+  | { kind: "abandon"; marked: Set<number> }
+  | { kind: "split"; source: number; message: string | null };
 
 const MODE_LABELS: Record<RebaseMode, string> = {
   revision: "This commit",
@@ -65,6 +67,7 @@ export class RepoView {
   private detailsRequest = 0;
   private details: DetailsPanel;
   private sidebar: Sidebar;
+  private oplog: OpLogPanel;
 
   private scroller: HTMLElement;
   private spacer: HTMLElement;
@@ -102,6 +105,7 @@ export class RepoView {
         fileDiff: (from, to, file, force) => fetchFileDiff(this.path, from, to, file.path, file.sourcePath, force),
         treeFiles: (commitId) => fetchTreeFiles(this.path, commitId),
         fileMenu: (path) => this.fileMenu(path),
+        splitChanged: () => this.updateModebar(),
         swapCompare: () => {
           this.compareSwapped = !this.compareSwapped;
           this.scheduleDetails();
@@ -114,6 +118,8 @@ export class RepoView {
       },
       { tab: storage("detailsTab"), changesView: storage("changesView") },
     );
+
+    this.oplog = new OpLogPanel(this.ref("oplog"), path, (label, run) => this.act(label, run));
 
     this.sidebar = new Sidebar(this.ref("sidebar"), {
       select: (item) => this.selectCommit(item.commitId, item.name),
@@ -164,6 +170,7 @@ export class RepoView {
       if (!button || !p) return;
       if (button.dataset.action === "run") return this.runPending();
       if (button.dataset.action === "cancel") return this.cancelPending();
+      if (button.dataset.action === "message" && p.kind === "split") return this.editSplitMessage();
       if (p.kind === "rebase") {
         if (button.dataset.mode) p.mode = button.dataset.mode as RebaseMode;
         if (button.dataset.placement) p.placement = button.dataset.placement as Placement;
@@ -173,6 +180,7 @@ export class RepoView {
     this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
     this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
+    this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
     this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
     this.ref("redo").addEventListener("click", () => this.act("Redo", () => jj.redo(this.path)));
     this.spacer.addEventListener("contextmenu", (event) => {
@@ -224,6 +232,7 @@ export class RepoView {
       this.scroller.scrollTop = keepPosition ? previousScroll : 0;
       this.updateStatus();
       this.sidebar.setData(next.sidebar);
+      this.oplog.refresh();
       this.render();
       this.scheduleDetails();
       this.onChange();
@@ -306,6 +315,9 @@ export class RepoView {
       case "s":
         this.startSquash(this.selected);
         return true;
+      case "S":
+        this.startSplit(this.selected);
+        return true;
       case "a":
         this.startAbandon(this.selected);
         return true;
@@ -343,6 +355,16 @@ export class RepoView {
     this.updatePending();
   }
 
+  /** Split: tick hunks in the Changes panel for the first commit, then Enter. */
+  private startSplit(index: number) {
+    this.select(index);
+    this.scheduleDetails();
+    this.pending = { kind: "split", source: index, message: null };
+    this.compareIndex = -1;
+    this.details.startSplit();
+    this.updatePending();
+  }
+
   private startAbandon(index: number) {
     this.pending = { kind: "abandon", marked: new Set([index]) };
     this.compareIndex = -1;
@@ -358,13 +380,14 @@ export class RepoView {
   }
 
   private cancelPending() {
+    if (this.pending?.kind === "split") this.details.endSplit();
     this.pending = null;
     this.updatePending();
   }
 
   private setTarget(index: number) {
     const p = this.pending;
-    if (!p || p.kind === "abandon") return;
+    if (!p || (p.kind !== "rebase" && p.kind !== "squash")) return;
     p.target = Math.max(0, Math.min(this.log!.rows.length - 1, index));
     this.reveal(p.target);
     this.updatePending();
@@ -382,7 +405,7 @@ export class RepoView {
   private movingRows(): Set<number> {
     const p = this.pending!;
     if (p.kind === "abandon") return p.marked;
-    if (p.kind === "squash" || p.mode === "revision") return new Set([p.source]);
+    if (p.kind === "split" || p.kind === "squash" || p.mode === "revision") return new Set([p.source]);
     if (p.mode === "source") return this.relations!.descendants([p.source]);
     return this.relations!.branch([p.source], p.target);
   }
@@ -393,6 +416,14 @@ export class RepoView {
     if (p.kind === "abandon") {
       if (p.marked.size === 0) return "Mark commits to abandon with Space";
       if ([...p.marked].some((i) => rows[i].immutable)) return "Some marked commits are immutable";
+      return null;
+    }
+    if (p.kind === "split") {
+      const { selected, total } = this.details.splitCounts();
+      if (rows[p.source].immutable) return "This commit is immutable";
+      if (total === 0) return "This commit has no changes to split";
+      if (selected === 0) return "Tick the changes for the first commit";
+      if (selected === total) return "Leave something for the second commit";
       return null;
     }
     const moving = this.movingRows();
@@ -414,7 +445,9 @@ export class RepoView {
     // Arrows move the destination, or for abandon the cursor.
     const delta: Record<string, number> = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1, PageDown: page, PageUp: -page };
     if (event.key in delta) {
-      if (p.kind === "abandon") this.select(this.selected + delta[event.key]);
+      // Splitting keeps the commit fixed; arrows step through its files.
+      if (p.kind === "split") this.details.moveFile(Math.sign(delta[event.key]));
+      else if (p.kind === "abandon") this.select(this.selected + delta[event.key]);
       else this.setTarget(p.target + delta[event.key]);
       return true;
     }
@@ -484,6 +517,14 @@ export class RepoView {
       body = `<span class="modebar-title">Squash</span>${id(p.source)}${what} <span class="muted">into</span> ${id(p.target)} ${summary(p.target)}`;
       action = "Squash";
       hint = "↑↓ choose · Enter · Esc";
+    } else if (p.kind === "split") {
+      const { selected, total } = this.details.splitCounts();
+      body =
+        `<span class="modebar-title">Split</span>${id(p.source)} ${summary(p.source)}` +
+        `<span class="muted">${selected} of ${total} ${total === 1 ? "change" : "changes"} ticked for the first commit</span>` +
+        `<button class="modebar-button" data-action="message">${p.message === null ? "First commit message…" : "Edit message…"}</button>`;
+      action = "Split";
+      hint = "Tick files and hunks · Enter · Esc";
     } else {
       const count = p.marked.size;
       body = `<span class="modebar-title">Abandon</span><span>${count} ${count === 1 ? "commit" : "commits"} marked</span>`;
@@ -518,6 +559,14 @@ export class RepoView {
         () => jj.squash(this.path, rows[p.source].commitId, rows[p.target].commitId, p.paths),
         { undo: true },
       );
+    } else if (p.kind === "split") {
+      const plan = this.details.splitPlan();
+      this.details.endSplit();
+      await this.act(
+        `Split ${short(p.source)}`,
+        () => jj.split(this.path, rows[p.source].commitId, plan, p.message),
+        { undo: true },
+      );
     } else {
       const marked = [...p.marked].sort((a, b) => a - b);
       await this.act(
@@ -525,6 +574,25 @@ export class RepoView {
         () => jj.abandon(this.path, marked.map((i) => rows[i].commitId)),
         { undo: true },
       );
+    }
+  }
+
+  private async editSplitMessage() {
+    const p = this.pending;
+    if (p?.kind !== "split") return;
+    const row = this.log!.rows[p.source];
+    let message = p.message ?? row.summary;
+    if (p.message === null) {
+      try {
+        message = (this.diffCache.get(row.commitId) ?? (await fetchDiff(this.path, row.commitId))).description;
+      } catch {
+        // Start from the summary.
+      }
+    }
+    const edited = await editText("Message for the first commit", message, "⌘↩ to save");
+    if (edited !== null && this.pending === p) {
+      p.message = edited;
+      this.updateModebar();
     }
   }
 
@@ -631,7 +699,7 @@ export class RepoView {
       el.classList.toggle("selected", i === this.selected);
       el.classList.toggle("compare", i === this.compareIndex);
       const p = this.pending;
-      const target = p && p.kind !== "abandon" ? p.target : -1;
+      const target = p && (p.kind === "rebase" || p.kind === "squash") ? p.target : -1;
       el.classList.toggle("rebase-moving", !!moving?.has(i));
       el.classList.toggle("rebase-target", i === target);
       el.classList.toggle("abandon-marked", p?.kind === "abandon" && p.marked.has(i));
@@ -769,6 +837,7 @@ export class RepoView {
       { text: "Rebase…", action: () => this.startRebase(index, "revision") },
       { text: "Rebase with Descendants…", action: () => this.startRebase(index, "source") },
       { text: "Squash into…", action: () => this.startSquash(index), enabled: !row.immutable },
+      { text: "Split…", action: () => this.startSplit(index), enabled: !row.immutable },
       { text: "Absorb into Ancestors", action: () => this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true }), enabled: !row.immutable },
       { text: "Duplicate", action: () => this.act(`Duplicate ${row.changeId.slice(0, 8)}`, () => jj.duplicate(this.path, [row.commitId]), { undo: true }) },
       { text: "Abandon…", action: () => this.startAbandon(index), enabled: !row.immutable },
@@ -854,11 +923,6 @@ export class RepoView {
   private applyRevset(value: string) {
     this.revset = value.trim();
     storage(`revset:${this.path}`, this.revset || null);
-    this.sidebar = new Sidebar(this.ref("sidebar"), {
-      select: (item) => this.selectCommit(item.commitId, item.name),
-      contextMenu: (item) => this.sidebarMenu(item),
-    });
-
     this.revsetInput.value = this.revset;
     this.syncPreset();
     this.load();

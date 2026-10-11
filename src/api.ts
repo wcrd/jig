@@ -2,6 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
+import type { SplitPlan } from "./details";
 import type { CommandOutput, CommitDiff, CompareDiff, FileDiff, FileText, LogResponse, TreeEntry } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -93,6 +94,24 @@ export const jj = {
   absorb: (path: string, revision: string) => invoke<CommandOutput>("jj_absorb", { path, revision }),
   squash: (path: string, revision: string, into: string, paths: string[] = []) =>
     invoke<CommandOutput>("jj_squash", { path, revision, into, paths }),
+  split: (path: string, revision: string, plan: SplitPlan, message: string | null) =>
+    invoke<CommandOutput>("jj_split", { path, revision, plan, message }),
+  opRestore: (path: string, opId: string) => invoke<CommandOutput>("jj_op_restore", { path, opId }),
+  opRevert: (path: string, opId: string) => invoke<CommandOutput>("jj_op_revert", { path, opId }),
   undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
   redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };
+
+export interface OpEntry {
+  id: string;
+  shortId: string;
+  description: string;
+  time: number;
+  user: string;
+  current: boolean;
+  snapshot: boolean;
+}
+
+export function fetchOpLog(path: string, limit = 300): Promise<OpEntry[]> {
+  return invoke<OpEntry[]>("op_log", { path, limit });
+}

@@ -2,6 +2,7 @@ pub mod diff;
 pub mod jj_cli;
 pub mod layout;
 pub mod repo;
+pub mod split_tool;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -332,6 +333,51 @@ async fn jj_squash(
     jj_in(path, move || jj_cli::squash_args(&revision, &into, &paths)).await
 }
 
+#[tauri::command]
+async fn op_log(path: String, limit: Option<usize>) -> Result<Vec<repo::OpEntry>, String> {
+    blocking(move || repo::op_log(&PathBuf::from(path), limit.unwrap_or(200))).await
+}
+
+#[tauri::command]
+async fn jj_op_restore(path: String, op_id: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::op_args("restore", &op_id)).await
+}
+
+#[tauri::command]
+async fn jj_op_revert(path: String, op_id: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::op_args("revert", &op_id)).await
+}
+
+/// Splits `revision` into two commits; the first gets the changes selected in
+/// `plan`. jj runs this very binary as its diff editor (see `split_tool`).
+#[tauri::command]
+async fn jj_split(
+    path: String,
+    revision: String,
+    plan: split_tool::SplitPlan,
+    message: Option<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        let program = std::env::current_exe()?;
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let plan_path = std::env::temp_dir().join(format!(
+            "jork-split-plan-{}-{}.json",
+            std::process::id(),
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let (configs, args) =
+            jj_cli::split_args(&revision, message.as_deref(), &program, &plan_path)?;
+        std::fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let result = jj_cli::run_with_config(&root, &configs, &args);
+        let _ = std::fs::remove_file(&plan_path);
+        result
+    })
+    .await
+}
+
 #[derive(serde::Serialize)]
 struct InitialRepo {
     path: String,
@@ -387,7 +433,11 @@ pub fn run() {
             jj_describe,
             jj_duplicate,
             jj_absorb,
-            jj_squash
+            jj_squash,
+            jj_split,
+            op_log,
+            jj_op_restore,
+            jj_op_revert
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

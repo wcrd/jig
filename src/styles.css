@@ -1873,3 +1873,176 @@ dialog.prompt textarea:focus {
   align-self: center;
   font-size: 11.5px;
 }
+
+/* Split: checkboxes on files and hunks. */
+.check {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  margin-right: 2px;
+  border: 1.5px solid var(--gutter);
+  border-radius: 3.5px;
+  background: var(--bg);
+  vertical-align: -2px;
+  cursor: pointer;
+}
+
+.check.on,
+.check.some {
+  border-color: var(--lane-5);
+  background: var(--lane-5);
+}
+
+.check.on::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  margin-top: -2px;
+  border: solid #fff;
+  border-width: 0 0 1.8px 1.8px;
+  transform: rotate(-45deg);
+}
+
+.check.some::after {
+  content: "";
+  width: 7px;
+  height: 1.8px;
+  background: #fff;
+}
+
+.line.hunk .code .check {
+  margin-right: 8px;
+}
+
+.line.unselected {
+  opacity: 0.4;
+}
+
+.modebar.split {
+  background: color-mix(in srgb, var(--lane-4) 12%, var(--toolbar-bg));
+  border-bottom-color: color-mix(in srgb, var(--lane-4) 35%, var(--border));
+}
+
+.modebar.split .modebar-actions button.primary {
+  border-color: var(--lane-4);
+  background: var(--lane-4);
+}
+
+/* Operation log */
+
+.oplog {
+  flex: none;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.oplog-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.oplog-title {
+  font-weight: 600;
+}
+
+.oplog-toggle {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.oplog-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.op {
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.op:hover {
+  background: var(--hover);
+}
+
+.op.selected {
+  background: var(--selected);
+}
+
+.op.snapshot .op-description {
+  color: var(--muted);
+}
+
+.op-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.op-description {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.op-current {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--lane-5);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.op-meta {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.op-meta .id {
+  font-size: 11px;
+}
+
+.oplog-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  font-size: 11.5px;
+}
+
+.oplog-footer button,
+.modebar-button {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+  font-size: 12px;
+}
+
+.oplog-footer button[disabled] {
+  opacity: 0.45;
+}

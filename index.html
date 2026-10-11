@@ -38,6 +38,9 @@
           <button data-ref="redo" class="icon-button" title="Redo (jj redo)">
             <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10.5 3.5l3 3-3 3M13.5 6.5h-7a4 4 0 0 0 0 8H9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
           </button>
+          <button data-ref="oplog-button" class="icon-button" title="Operation log">
+            <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="8" cy="8" r="5.75" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 4.75V8l2.25 1.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
           <div class="toolbar-gap"></div>
           <div class="revset">
             <select data-ref="revset-preset" title="Revset presets">
@@ -83,6 +86,7 @@
             </div>
           </section>
         </div>
+        <aside data-ref="oplog" class="oplog" hidden></aside>
         </div>
       </div>
     </template>
