@@ -65,8 +65,6 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Gr
     pills += pill(`${escapeHtml(name)}@`, { kind: "workspace", title: `Working copy of workspace ${name}` });
   }
   for (const ref of row.refs) pills += refPill(ref, color);
-  if (row.conflict) pills += pill("conflict", { kind: "flag conflict" });
-  if (row.divergent) pills += pill("divergent", { kind: "flag divergent" });
 
   let summary: string;
   if (row.summary) {
@@ -76,15 +74,19 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Gr
     summary = `<span class="placeholder">(no description set)</span>`;
   }
   // Merges are usually "empty" (no changes beyond their parents), which is noise.
-  const empty = row.empty && row.parentCount < 2 ?`<span class="empty-tag">(empty)</span> ` : "";
+  const empty = row.empty && row.parentCount < 2 ? `<span class="empty-tag">(empty)</span> ` : "";
+  // States of the commit itself, shown as text rather than ref-like pills.
+  const states =
+    (row.conflict ? `<span class="state conflict" title="This commit has conflicts">⚠ conflict</span>` : "") +
+    (row.divergent ? `<span class="state divergent" title="This change has more than one visible commit">divergent</span>` : "");
   const body = row.hasBody ? `<span class="more" title="Has a longer description">↩</span>` : "";
 
   el.innerHTML =
     graph.rowSvg(index) +
     `<div class="desc" style="padding-left:${textX(row.width)}px">${pills}` +
-    `<span class="summary">${empty}${summary}</span>${body}</div>` +
+    `<span class="summary">${states}${empty}${summary}</span>${body}</div>` +
     authorHtml(row) +
-    `<div class="change" title="Change ID ${row.changeId}">${idHtml(row.changeId, row.changePrefixLen, "change-id")}</div>` +
+    `<div class="change" title="Change ID ${row.changeId}${row.divergent ? " (divergent)" : ""}">${idHtml(row.changeId, row.changePrefixLen, "change-id")}${row.divergent ? `<span class="divergent-mark">??</span>` : ""}</div>` +
     `<div class="commit" title="Commit ID ${row.commitId}">${idHtml(row.commitId, row.commitPrefixLen, "commit-id")}</div>` +
     `<div class="date" title="${escapeHtml(formatFullDate(row.timestamp))}">${escapeHtml(formatDate(row.timestamp))}</div>`;
 }

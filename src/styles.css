@@ -2213,3 +2213,23 @@ dialog.prompt textarea:focus {
   color: var(--muted);
   font-size: 12px;
 }
+
+/* Commit states, as jj shows them: text, not pills. */
+.state {
+  margin-right: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.state.conflict {
+  color: var(--conflict);
+}
+
+.state.divergent {
+  color: var(--lane-6);
+}
+
+.divergent-mark {
+  color: var(--lane-6);
+  font: 600 12px ui-monospace, "SF Mono", Menlo, monospace;
+}
