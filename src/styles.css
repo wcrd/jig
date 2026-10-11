@@ -45,18 +45,7 @@
   --ui-blue: #2e95e8;
   --ui-purple: #b455d9;
 
-  /* Lane colours by column (Radix Colors step 9). No red, which is kept for
-     conflicts. */
-  --lane-0: #6e56cf;
-  --lane-1: #12a594;
-  --lane-2: #f76b15;
-  --lane-3: #0090ff;
-  --lane-4: #d6409f;
-  --lane-5: #46a758;
-  --lane-6: #3e63dd;
-  --lane-7: #d99a00;
-  --lane-8: #a18072;
-  --lane-9: #00a2c7;
+  /* Lane colours (--lane-0 to 9) are set by settings.ts from the palette. */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -101,17 +90,6 @@
     --ui-green: #6fcf4f;
     --ui-blue: #45a5f0;
     --ui-purple: #c46ce6;
-
-    --lane-0: #8e7cf0;
-    --lane-1: #2ec4b2;
-    --lane-2: #ff8a3d;
-    --lane-3: #3aa8ff;
-    --lane-4: #e866b8;
-    --lane-5: #5fc075;
-    --lane-6: #6683f0;
-    --lane-7: #f2b82f;
-    --lane-8: #b89a8c;
-    --lane-9: #2bbde0;
   }
 }
 
@@ -2765,4 +2743,82 @@ mark {
   color: var(--muted);
   font-size: 11px;
   font-weight: normal;
+}
+
+/* Settings */
+
+dialog.prompt.settings {
+  width: 460px;
+}
+
+dialog.prompt.settings .list-section {
+  padding-left: 0;
+}
+
+.palette-options {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.palette-option {
+  display: grid !important;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px !important;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text) !important;
+  cursor: pointer;
+}
+
+.palette-option:has(input:checked) {
+  border-color: var(--ui-blue);
+  background: color-mix(in srgb, var(--ui-blue) 8%, var(--bg));
+}
+
+dialog.prompt .palette-option input {
+  height: auto;
+  margin: 0;
+}
+
+.palette-text {
+  display: grid;
+  gap: 2px;
+}
+
+.palette-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.palette-description {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.swatches {
+  display: flex;
+  gap: 3px;
+}
+
+.swatches span {
+  width: 4px;
+  height: 22px;
+  border-radius: 2px;
+}
+
+.swatches.dark {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  .swatches.light {
+    display: none;
+  }
+
+  .swatches.dark {
+    display: flex;
+  }
 }

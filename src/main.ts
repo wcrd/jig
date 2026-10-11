@@ -5,6 +5,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { fetchInitialRepo, isTauri, storage } from "./api";
 import { escapeHtml } from "./format";
 import { RepoView } from "./repoview";
+import { applyPalette, showSettings } from "./settings";
+
+applyPalette();
 
 const POLL_MS = 2500;
 
@@ -120,6 +123,9 @@ window.addEventListener("keydown", (event) => {
   } else if (mod && event.key === "w") {
     event.preventDefault();
     if (active) closeTab(active);
+  } else if (mod && event.key === ",") {
+    event.preventDefault();
+    showSettings();
   } else if (mod && event.key === "r") {
     event.preventDefault();
     active?.load({ keepPosition: true });

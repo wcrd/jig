@@ -13,6 +13,7 @@ import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
 import { escapeHtml, remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, prompt, runWithToast, showHelp, showMenu } from "./ui";
+import { showSettings } from "./settings";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
 const OVERSCAN = 8;
@@ -221,6 +222,7 @@ export class RepoView {
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
     this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
     this.ref("help").addEventListener("click", () => showHelp());
+    this.ref("settings").addEventListener("click", () => showSettings());
     this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
     this.ref("redo").addEventListener("click", () => this.act("Redo", () => jj.redo(this.path)));
     this.spacer.addEventListener("contextmenu", (event) => {

@@ -222,6 +222,7 @@ const HELP: [string, [string, string][]][] = [
       ["⌘T  ⌘W", "Open / close tab"],
       ["⌘1–9", "Switch tab"],
       ["?", "This help"],
+      ["⌘,", "Settings"],
     ],
   ],
 ];
