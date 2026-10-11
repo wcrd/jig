@@ -135,10 +135,17 @@ export function editText(title: string, initial: string, hint = ""): Promise<str
   document.body.appendChild(dialog);
   const textarea = dialog.querySelector("textarea")!;
   textarea.value = initial;
+  // Save with ⌘↩, or jjui's ⌥↩ / ⌃S; ⌃X clears, as in jjui.
   textarea.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    const save =
+      (event.key === "Enter" && (event.metaKey || event.ctrlKey || event.altKey)) ||
+      (event.ctrlKey && event.key.toLowerCase() === "s");
+    if (save) {
       event.preventDefault();
       dialog.close("ok");
+    } else if (event.ctrlKey && event.key.toLowerCase() === "x") {
+      event.preventDefault();
+      textarea.value = "";
     }
   });
   return new Promise((resolve) => {

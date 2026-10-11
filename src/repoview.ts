@@ -873,7 +873,7 @@ export class RepoView {
         // Start from the summary.
       }
     }
-    const edited = await editText("Message for the first commit", message, "⌘↩ to save");
+    const edited = await editText("Message for the first commit", message, "⌥↩ or ⌘↩ to save");
     if (edited !== null && this.pending === p) {
       p.message = edited;
       this.updateModebar();
@@ -900,7 +900,7 @@ export class RepoView {
     } catch {
       // Edit the summary rather than nothing.
     }
-    const edited = await editText(`Describe ${row.changeId.slice(0, 8)}`, message, "⌘↩ to save");
+    const edited = await editText(`Describe ${row.changeId.slice(0, 8)}`, message, "⌥↩ or ⌘↩ to save");
     if (edited === null || edited.trim() === message.trim()) return;
     this.act(`Describe ${row.changeId.slice(0, 8)}`, () => jj.describe(this.path, row.commitId, edited), { undo: true });
   }
