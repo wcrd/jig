@@ -2645,3 +2645,85 @@ dialog.prompt.help {
   display: grid;
   place-items: center;
 }
+
+/* Find bar (⌘F) */
+.details-body {
+  position: relative;
+}
+
+.search-bar {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 9px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.14);
+  color: var(--muted);
+}
+
+.search-bar input {
+  width: 200px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 12.5px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.search-bar.none input {
+  color: var(--conflict);
+}
+
+.search-count {
+  min-width: 52px;
+  font-size: 11.5px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.search-bar button {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+}
+
+.search-bar button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.row.search-hit {
+  --node-bg: color-mix(in srgb, #ffd60a 22%, var(--bg));
+  background: color-mix(in srgb, #ffd60a 22%, var(--bg));
+}
+
+.row.search-hit.selected {
+  --node-bg: color-mix(in srgb, #ffd60a 40%, var(--selected));
+  background: color-mix(in srgb, #ffd60a 40%, var(--selected));
+}
+
+.line.search-hit .code {
+  box-shadow: inset 3px 0 0 #e8b400;
+}
+
+.line.search-hit.current .code {
+  box-shadow: inset 3px 0 0 #e8b400, inset 0 0 0 999px color-mix(in srgb, #ffd60a 14%, transparent);
+}
+
+mark {
+  background: #ffe36e;
+  color: #1d1d1f;
+  border-radius: 2px;
+}

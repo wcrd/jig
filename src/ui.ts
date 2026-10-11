@@ -208,6 +208,7 @@ const HELP: [string, [string, string][]][] = [
       ["u  ⇧U", "Undo / redo"],
       ["o", "Operation log"],
       ["g", "Fetch / push"],
+      ["⌘F", "Find in graph, or in the diff"],
       ["⇧L  ⌘L", "Revset"],
       ["⌘R", "Reload"],
       ["⌥↑ ⌥↓", "Previous / next file"],

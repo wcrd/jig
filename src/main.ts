@@ -123,6 +123,9 @@ window.addEventListener("keydown", (event) => {
   } else if (mod && event.key === "r") {
     event.preventDefault();
     active?.load({ keepPosition: true });
+  } else if (mod && event.key === "f") {
+    event.preventDefault();
+    active?.find();
   } else if (mod && event.key === "l") {
     event.preventDefault();
     active?.focusRevset();

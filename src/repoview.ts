@@ -7,6 +7,7 @@ import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { OpLogPanel } from "./oplog";
 import { Relations } from "./relations";
+import { SearchBar, type SearchTarget } from "./search";
 import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
@@ -60,6 +61,13 @@ export class RepoView {
   private compareCache = new Map<string, CompareDiff>();
   private relations: Relations | null = null;
   private pending: Pending | null = null;
+  private searchBar = new SearchBar();
+  /** Where ⌘F searches: the area last clicked in. */
+  private searchZone: "graph" | "diff" = "graph";
+  // Graph search: matching rows and the current one.
+  private searchQuery = "";
+  private searchMatches: number[] = [];
+  private searchCurrent = -1;
   private modebar!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
   private loading = false;
@@ -194,6 +202,8 @@ export class RepoView {
         this.startDrag(event, index);
       }
     });
+    this.ref("list").addEventListener("mousedown", () => (this.searchZone = "graph"), true);
+    this.ref("diff-view").addEventListener("mousedown", () => (this.searchZone = "diff"), true);
     this.modebar = this.ref("modebar");
     this.modebar.addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLElement>("button");
@@ -285,6 +295,62 @@ export class RepoView {
       // Errors surface on the next explicit load.
     }
   }
+
+  private searchMatchSet = new Set<number>();
+
+  /** ⌘F: find in the graph, or in the diff or file if that was clicked last. */
+  find() {
+    if (this.searchZone === "diff" && this.root.querySelector(".vlines")) {
+      this.searchBar.open(this.ref("details-body"), this.details.searchTarget);
+    } else {
+      this.searchBar.open(this.ref("list"), this.graphSearch);
+    }
+  }
+
+  /** Searching the graph: descriptions, authors, IDs and ref names. */
+  private graphSearch: SearchTarget = {
+    setQuery: (query) => {
+      this.searchQuery = query.toLowerCase();
+      const q = this.searchQuery;
+      this.searchMatches = [];
+      (this.log?.rows ?? []).forEach((row, i) => {
+        const haystack = [
+          row.summary,
+          row.authorName,
+          row.authorEmail,
+          row.changeId.slice(0, 12),
+          row.commitId.slice(0, 12),
+          ...row.refs.map((r) => ("remote" in r ? `${r.name}@${r.remote}` : r.name)),
+          ...row.coauthors.map((c) => c.name),
+        ]
+          .join("\n")
+          .toLowerCase();
+        if (haystack.includes(q)) this.searchMatches.push(i);
+      });
+      this.searchMatchSet = new Set(this.searchMatches);
+      // Continue from the selection.
+      this.searchCurrent = this.searchMatches.findIndex((i) => i >= this.selected) - 1;
+      if (this.searchCurrent < -1) this.searchCurrent = this.searchMatches.length - 1;
+      this.render();
+      return this.searchMatches.length;
+    },
+    step: (delta) => {
+      const n = this.searchMatches.length;
+      if (n === 0) return 0;
+      this.searchCurrent = (this.searchCurrent + delta + n) % n;
+      const index = this.searchMatches[this.searchCurrent];
+      this.compareIndex = -1;
+      this.select(index);
+      this.scheduleDetails();
+      return this.searchCurrent + 1;
+    },
+    clear: () => {
+      this.searchQuery = "";
+      this.searchMatches = [];
+      this.searchMatchSet = new Set();
+      this.render();
+    },
+  };
 
   /** Called when the tab is shown. */
   activate() {
@@ -916,6 +982,7 @@ export class RepoView {
       }
       el.classList.toggle("selected", i === this.selected);
       el.classList.toggle("compare", i === this.compareIndex);
+      el.classList.toggle("search-hit", this.searchMatchSet.has(i));
       const p = this.pending;
       const target = p && "target" in p ? p.target : -1;
       el.classList.toggle("rebase-moving", !!moving?.has(i));

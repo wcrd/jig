@@ -13,6 +13,7 @@ import {
   splitLines,
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
+import type { SearchTarget } from "./search";
 import { type LineSet, VirtualLines } from "./virtual";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { agentBadge, avatarHtml } from "./agents";
@@ -190,6 +191,11 @@ export class DetailsPanel {
       if (button) this.onViewButton(button);
     });
     this.renderTabs();
+  }
+
+  /** Find (⌘F) in the shown diff or file. */
+  get searchTarget(): SearchTarget {
+    return this.virtual;
   }
 
   clear(message = "") {
