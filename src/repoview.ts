@@ -2,11 +2,11 @@
 // its state. Each tab owns a RepoView, so switching tabs keeps scroll
 // position, selection and everything else.
 
-import { fetchDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, storage } from "./api";
+import { fetchCompare, fetchDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { renderRow } from "./rows";
-import type { CommitDiff, LogResponse } from "./types";
+import type { CommitDiff, CompareDiff, LogResponse } from "./types";
 
 const OVERSCAN = 8;
 /** Wait this long after the selection settles before loading its diff. */
@@ -24,6 +24,11 @@ export class RepoView {
   private log: LogResponse | null = null;
   private graph: Graph | null = null;
   private selected = -1;
+  /** The other commit in compare mode (⌘-click), or -1. */
+  private compareIndex = -1;
+  /** Compare from the upper commit to the lower instead of the reverse. */
+  private compareSwapped = false;
+  private compareCache = new Map<string, CompareDiff>();
   private rendered = new Map<number, HTMLElement>();
   private loading = false;
   private frame = 0;
@@ -68,6 +73,10 @@ export class RepoView {
       {
         fileText: (commitId, filePath) => fetchFileText(this.path, commitId, filePath),
         treeFiles: (commitId) => fetchTreeFiles(this.path, commitId),
+        swapCompare: () => {
+          this.compareSwapped = !this.compareSwapped;
+          this.scheduleDetails();
+        },
         selectChange: (changeId) => {
           const index = this.log?.rows.findIndex((r) => r.changeId === changeId) ?? -1;
           if (index >= 0) this.select(index);
@@ -92,7 +101,16 @@ export class RepoView {
     new ResizeObserver(() => this.render()).observe(this.ref("list"));
     this.spacer.addEventListener("mousedown", (event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
-      if (row) this.select(Number(row.dataset.index), false);
+      if (!row) return;
+      const index = Number(row.dataset.index);
+      // ⌘-click picks a second commit to compare with the selected one.
+      if (event.metaKey && this.selected >= 0) {
+        this.setCompare(index === this.selected || index === this.compareIndex ? -1 : index);
+      } else {
+        this.compareIndex = -1;
+        this.select(index, false);
+        this.scheduleDetails();
+      }
     });
     this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
     this.revsetPreset.addEventListener("change", () => {
@@ -124,7 +142,9 @@ export class RepoView {
       this.graph = new Graph(next.rows, next.edges);
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
       this.revsetInput.placeholder = next.defaultRevset;
+      const previousCompare = this.compareIndex >= 0 ? this.log?.rows[this.compareIndex]?.changeId : null;
       let selected = previousChange ? next.rows.findIndex((r) => r.changeId === previousChange) : -1;
+      this.compareIndex = previousCompare ? next.rows.findIndex((r) => r.changeId === previousCompare) : -1;
       if (selected < 0 && !keepPosition) selected = next.rows.findIndex((r) => r.isWorkingCopy);
       this.selected = selected;
       this.spacer.style.height = `${next.rows.length * ROW_HEIGHT}px`;
@@ -189,9 +209,20 @@ export class RepoView {
       Home: 0,
       End: this.log.rows.length - 1,
     };
+    if (event.key === "Escape" && this.compareIndex >= 0) {
+      this.setCompare(-1);
+      return true;
+    }
     if (!(event.key in moves)) return false;
     this.select(moves[event.key]);
     return true;
+  }
+
+  private setCompare(index: number) {
+    this.compareIndex = index;
+    this.compareSwapped = false;
+    this.render();
+    this.scheduleDetails();
   }
 
   private updateStatus() {
@@ -232,6 +263,7 @@ export class RepoView {
         this.rendered.set(i, el);
       }
       el.classList.toggle("selected", i === this.selected);
+      el.classList.toggle("compare", i === this.compareIndex);
     }
   }
 
@@ -259,6 +291,10 @@ export class RepoView {
   private scheduleDetails() {
     clearTimeout(this.detailsTimer);
     const row = this.log && this.selected >= 0 ? this.log.rows[this.selected] : null;
+    if (row && this.compareIndex >= 0 && this.compareIndex !== this.selected) {
+      this.scheduleCompare();
+      return;
+    }
     if (!row) {
       this.details.clear(this.log ? "No commit selected" : "");
       return;
@@ -276,6 +312,32 @@ export class RepoView {
         this.diffCache.set(row.commitId, diff);
         if (this.diffCache.size > DIFF_CACHE_SIZE) this.diffCache.delete(this.diffCache.keys().next().value!);
         if (request === this.detailsRequest) this.details.show(row, diff);
+      } catch (err) {
+        if (request === this.detailsRequest) this.details.showError(String(err));
+      }
+    }, DETAILS_DELAY_MS);
+  }
+
+  private scheduleCompare() {
+    const rows = this.log!.rows;
+    // Compare from the older commit (lower in the graph) to the newer.
+    const [a, b] = [this.selected, this.compareIndex].sort((x, y) => y - x);
+    const from = rows[this.compareSwapped ? b : a];
+    const to = rows[this.compareSwapped ? a : b];
+    const key = `${from.commitId}..${to.commitId}`;
+    const cached = this.compareCache.get(key);
+    if (cached) {
+      this.details.showCompare(from, to, cached);
+      return;
+    }
+    this.details.showPendingCompare(from, to);
+    const request = ++this.detailsRequest;
+    this.detailsTimer = window.setTimeout(async () => {
+      try {
+        const diff = await fetchCompare(this.path, from.commitId, to.commitId);
+        this.compareCache.set(key, diff);
+        if (this.compareCache.size > DIFF_CACHE_SIZE) this.compareCache.delete(this.compareCache.keys().next().value!);
+        if (request === this.detailsRequest) this.details.showCompare(from, to, diff);
       } catch (err) {
         if (request === this.detailsRequest) this.details.showError(String(err));
       }

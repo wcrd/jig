@@ -90,6 +90,20 @@ async fn commit_diff(
 }
 
 #[tauri::command]
+async fn compare_diff(
+    path: String,
+    from: String,
+    to: String,
+    repos: State<'_, OpenRepos>,
+) -> Result<diff::CompareDiff, String> {
+    let open = open_repo(&path, &repos).await?;
+    blocking(move || {
+        pollster::block_on(diff::compare_diff(&open.repo, open.marker_style, &from, &to))
+    })
+    .await
+}
+
+#[tauri::command]
 async fn file_text(
     path: String,
     commit_id: String,
@@ -161,6 +175,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_log,
             commit_diff,
+            compare_diff,
             file_text,
             tree_files,
             head_op_id,

@@ -17,7 +17,9 @@ use jj_lib::diff_presentation::{DiffTokenType, LineCompareMode};
 use jj_lib::matchers::EverythingMatcher;
 use jj_lib::merge::Diff;
 use jj_lib::object_id::ObjectId;
+use jj_lib::merged_tree::MergedTree;
 use jj_lib::repo::{ReadonlyRepo, Repo};
+use jj_lib::store::Store;
 use jj_lib::repo_path::RepoPathBuf;
 use serde::Serialize;
 
@@ -144,24 +146,137 @@ pub async fn commit_diff(
     }
 
     let from_tree = commit.parent_tree(repo.as_ref()).await?;
-    let to_tree = commit.tree();
     let mut copy_records = CopyRecords::default();
     for parent_id in commit.parent_ids() {
-        let records: Vec<_> = store
-            .get_copy_records(None, parent_id, commit.id())?
-            .collect::<Vec<_>>()
-            .await
-            .into_iter()
-            .collect::<Result<_, _>>()?;
-        copy_records.add_records(records);
+        copy_records.add_records(copy_records_between(store, parent_id, commit.id()).await?);
     }
+    let files = diff_trees(store, marker_style, &from_tree, &commit.tree(), &copy_records).await?;
 
+    Ok(CommitDiff {
+        commit_id: commit.id().hex(),
+        change_id: commit.change_id().reverse_hex(),
+        description: commit.description().trim_end().to_owned(),
+        author: person(commit.author()),
+        committer: person(commit.committer()),
+        parents,
+        files,
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileText {
+    /// `None` when the file is absent, binary or too large.
+    pub text: Option<String>,
+    pub binary: bool,
+    pub too_large: bool,
+    pub conflict: bool,
+}
+
+/// A file's contents at a commit, with conflicts materialized as markers.
+pub async fn file_text(
+    repo: &Arc<ReadonlyRepo>,
+    marker_style: ConflictMarkerStyle,
+    commit_hex: &str,
+    file_path: &str,
+) -> Result<FileText> {
+    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
+    let commit = repo.store().get_commit_async(&id).await?;
+    let path = RepoPathBuf::from_internal_string(file_path)?;
+    let tree = commit.tree();
+    let value = tree.path_value(&path).await?;
+    let conflict = !value.is_resolved();
+    let materialized = materialize_tree_value(repo.store(), &path, value, tree.labels()).await?;
+    if matches!(materialized, MaterializedTreeValue::Absent | MaterializedTreeValue::Tree(_)) {
+        return Ok(FileText { text: None, binary: false, too_large: false, conflict });
+    }
+    let options = ConflictMaterializeOptions {
+        marker_style,
+        marker_len: None,
+        merge: repo.store().merge_options().clone(),
+    };
+    let part = git_diff_part(&path, materialized, &options).await?;
+    if part.content.is_binary {
+        return Ok(FileText { text: None, binary: true, too_large: false, conflict });
+    }
+    if part.content.contents.len() > MAX_FILE_BYTES {
+        return Ok(FileText { text: None, binary: false, too_large: true, conflict });
+    }
+    Ok(FileText {
+        text: Some(part.content.contents.to_str_lossy().into_owned()),
+        binary: false,
+        too_large: false,
+        conflict,
+    })
+}
+
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum EntryKind {
+    File,
+    Executable,
+    Symlink,
+    Submodule,
+    Conflict,
+}
+
+#[derive(Serialize)]
+pub struct TreeEntry {
+    pub path: String,
+    pub kind: EntryKind,
+}
+
+/// Every file in the commit's tree, for the file browser.
+pub async fn tree_files(repo: &Arc<ReadonlyRepo>, commit_hex: &str) -> Result<Vec<TreeEntry>> {
+    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
+    let commit = repo.store().get_commit_async(&id).await?;
+    let mut entries = vec![];
+    for (path, value) in commit.tree().entries() {
+        let value = value?;
+        let kind = match value.as_resolved() {
+            Some(Some(TreeValue::File { executable: true, .. })) => EntryKind::Executable,
+            Some(Some(TreeValue::File { .. })) => EntryKind::File,
+            Some(Some(TreeValue::Symlink(_))) => EntryKind::Symlink,
+            Some(Some(TreeValue::GitSubmodule(_))) => EntryKind::Submodule,
+            Some(Some(TreeValue::Tree(_))) | Some(None) => continue,
+            None => EntryKind::Conflict,
+        };
+        entries.push(TreeEntry {
+            path: path.as_internal_file_string().to_owned(),
+            kind,
+        });
+    }
+    Ok(entries)
+}
+
+
+async fn copy_records_between(
+    store: &Arc<Store>,
+    from: &CommitId,
+    to: &CommitId,
+) -> Result<Vec<jj_lib::backend::CopyRecord>> {
+    Ok(store
+        .get_copy_records(None, from, to)?
+        .collect::<Vec<_>>()
+        .await
+        .into_iter()
+        .collect::<Result<_, _>>()?)
+}
+
+/// File diffs from one tree to another, with renames from `copy_records`.
+async fn diff_trees(
+    store: &Arc<Store>,
+    marker_style: ConflictMarkerStyle,
+    from_tree: &MergedTree,
+    to_tree: &MergedTree,
+    copy_records: &CopyRecords,
+) -> Result<Vec<FileDiff>> {
     let materialize_options = ConflictMaterializeOptions {
         marker_style,
         marker_len: None,
         merge: store.merge_options().clone(),
     };
-    let tree_diff = from_tree.diff_stream_with_copies(&to_tree, &EverythingMatcher, &copy_records);
+    let tree_diff = from_tree.diff_stream_with_copies(to_tree, &EverythingMatcher, copy_records);
     let mut stream = materialized_diff_stream(
         store,
         tree_diff,
@@ -267,99 +382,34 @@ pub async fn commit_diff(
         files.push(file);
     }
 
-    Ok(CommitDiff {
-        commit_id: commit.id().hex(),
-        change_id: commit.change_id().reverse_hex(),
-        description: commit.description().trim_end().to_owned(),
-        author: person(commit.author()),
-        committer: person(commit.committer()),
-        parents,
-        files,
-    })
+    Ok(files)
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct FileText {
-    /// `None` when the file is absent, binary or too large.
-    pub text: Option<String>,
-    pub binary: bool,
-    pub too_large: bool,
-    pub conflict: bool,
+pub struct CompareDiff {
+    pub from: String,
+    pub to: String,
+    pub files: Vec<FileDiff>,
 }
 
-/// A file's contents at a commit, with conflicts materialized as markers.
-pub async fn file_text(
+/// The changes between two commits' snapshots.
+pub async fn compare_diff(
     repo: &Arc<ReadonlyRepo>,
     marker_style: ConflictMarkerStyle,
-    commit_hex: &str,
-    file_path: &str,
-) -> Result<FileText> {
-    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
-    let commit = repo.store().get_commit_async(&id).await?;
-    let path = RepoPathBuf::from_internal_string(file_path)?;
-    let tree = commit.tree();
-    let value = tree.path_value(&path).await?;
-    let conflict = !value.is_resolved();
-    let materialized = materialize_tree_value(repo.store(), &path, value, tree.labels()).await?;
-    if matches!(materialized, MaterializedTreeValue::Absent | MaterializedTreeValue::Tree(_)) {
-        return Ok(FileText { text: None, binary: false, too_large: false, conflict });
-    }
-    let options = ConflictMaterializeOptions {
-        marker_style,
-        marker_len: None,
-        merge: repo.store().merge_options().clone(),
-    };
-    let part = git_diff_part(&path, materialized, &options).await?;
-    if part.content.is_binary {
-        return Ok(FileText { text: None, binary: true, too_large: false, conflict });
-    }
-    if part.content.contents.len() > MAX_FILE_BYTES {
-        return Ok(FileText { text: None, binary: false, too_large: true, conflict });
-    }
-    Ok(FileText {
-        text: Some(part.content.contents.to_str_lossy().into_owned()),
-        binary: false,
-        too_large: false,
-        conflict,
+    from_hex: &str,
+    to_hex: &str,
+) -> Result<CompareDiff> {
+    let store = repo.store();
+    let parse = |hex: &str| CommitId::try_from_hex(hex).ok_or_else(|| anyhow!("bad commit id"));
+    let from = store.get_commit_async(&parse(from_hex)?).await?;
+    let to = store.get_commit_async(&parse(to_hex)?).await?;
+    let mut copy_records = CopyRecords::default();
+    copy_records.add_records(copy_records_between(store, from.id(), to.id()).await?);
+    let files = diff_trees(store, marker_style, &from.tree(), &to.tree(), &copy_records).await?;
+    Ok(CompareDiff {
+        from: from.id().hex(),
+        to: to.id().hex(),
+        files,
     })
-}
-
-#[derive(Serialize, Clone, Copy)]
-#[serde(rename_all = "lowercase")]
-pub enum EntryKind {
-    File,
-    Executable,
-    Symlink,
-    Submodule,
-    Conflict,
-}
-
-#[derive(Serialize)]
-pub struct TreeEntry {
-    pub path: String,
-    pub kind: EntryKind,
-}
-
-/// Every file in the commit's tree, for the file browser.
-pub async fn tree_files(repo: &Arc<ReadonlyRepo>, commit_hex: &str) -> Result<Vec<TreeEntry>> {
-    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
-    let commit = repo.store().get_commit_async(&id).await?;
-    let mut entries = vec![];
-    for (path, value) in commit.tree().entries() {
-        let value = value?;
-        let kind = match value.as_resolved() {
-            Some(Some(TreeValue::File { executable: true, .. })) => EntryKind::Executable,
-            Some(Some(TreeValue::File { .. })) => EntryKind::File,
-            Some(Some(TreeValue::Symlink(_))) => EntryKind::Symlink,
-            Some(Some(TreeValue::GitSubmodule(_))) => EntryKind::Submodule,
-            Some(Some(TreeValue::Tree(_))) | Some(None) => continue,
-            None => EntryKind::Conflict,
-        };
-        entries.push(TreeEntry {
-            path: path.as_internal_file_string().to_owned(),
-            kind,
-        });
-    }
-    Ok(entries)
 }

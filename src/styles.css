@@ -1288,3 +1288,59 @@ body > .empty {
 .row > .author {
   overflow: visible;
 }
+
+/* Compare mode */
+
+.row.compare {
+  --node-bg: color-mix(in srgb, var(--commit-id) 14%, var(--bg));
+  background: color-mix(in srgb, var(--commit-id) 14%, var(--bg));
+}
+
+.cmp {
+  display: grid;
+  gap: 4px;
+  margin-top: 10px;
+}
+
+.cmp-side {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.cmp-label {
+  width: 36px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cmp-side .id {
+  cursor: pointer;
+}
+
+.cmp-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cmp-hint {
+  margin-top: 10px;
+  font-size: 11.5px;
+}
+
+.cmp-banner {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--commit-id) 14%, var(--bg));
+  color: var(--text);
+  font-weight: normal;
+}
+
+.file-header > span {
+  white-space: nowrap;
+}

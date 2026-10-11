@@ -16,7 +16,7 @@ import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { agentBadge, avatarHtml } from "./agents";
 import { escapeHtml, formatFullDate, reflowMessage } from "./format";
-import type { CommitDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
+import type { CommitDiff, CompareDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
 export type DetailsTab = "commit" | "changes" | "tree";
 type ChangesView = "list" | "tree";
@@ -37,6 +37,8 @@ const FILE_ICON = `<svg class="icon" viewBox="0 0 16 16" width="13" height="13">
 export interface DetailsSource {
   fileText(commitId: string, path: string): Promise<FileText>;
   treeFiles(commitId: string): Promise<TreeEntry[]>;
+  /** Swap the direction of the current comparison. */
+  swapCompare(): void;
   /** Select a commit in the graph by change ID, e.g. when a parent is clicked. */
   selectChange(changeId: string): void;
   /** Persist a UI preference. */
@@ -62,6 +64,8 @@ export class DetailsPanel {
   private changesView: ChangesView;
   private row: LogRow | null = null;
   private diff: CommitDiff | null = null;
+  /** In compare mode, the commit compared from; `row` is the one compared to. */
+  private compareFrom: LogRow | null = null;
 
   // Changed files.
   private fileIndex = 0;
@@ -102,6 +106,8 @@ export class DetailsPanel {
         this.changesView = action;
         this.source.save("changesView", action);
         this.renderLeft();
+      } else if (action === "swap") {
+        this.source.swapCompare();
       } else if (action === "collapse") {
         this.treeOpen.clear();
         this.renderLeft();
@@ -139,7 +145,8 @@ export class DetailsPanel {
 
   /** Shows the row's header straight away, before its diff has loaded. */
   showPending(row: LogRow) {
-    if (this.row?.commitId === row.commitId) return;
+    if (this.row?.commitId === row.commitId && !this.compareFrom) return;
+    this.compareFrom = null;
     this.row = row;
     this.diff = null;
     this.el.info.innerHTML = this.infoHtml(row, null);
@@ -149,6 +156,7 @@ export class DetailsPanel {
 
   show(row: LogRow, diff: CommitDiff) {
     const previousPath = this.diff?.files[this.fileIndex]?.path;
+    this.compareFrom = null;
     this.row = row;
     this.diff = diff;
     this.changesTree = buildTree(diff.files.map((f) => f.path));
@@ -157,6 +165,63 @@ export class DetailsPanel {
     this.fileIndex = found >= 0 ? found : 0;
     this.renderLeft();
     this.renderRight();
+  }
+
+  showPendingCompare(from: LogRow, to: LogRow) {
+    this.compareFrom = from;
+    this.row = to;
+    this.diff = null;
+    this.el.info.innerHTML = this.compareInfoHtml(from, to);
+    this.renderLeft();
+    if (this.tab !== "tree") this.el.view.innerHTML = "";
+  }
+
+  /**
+   * Compare mode: the changes from one commit's snapshot to another's. The
+   * file list, diffs and file tree all work as for a single commit, with the
+   * "to" commit as the new side.
+   */
+  showCompare(from: LogRow, to: LogRow, compare: CompareDiff) {
+    const previousPath = this.diff?.files[this.fileIndex]?.path;
+    this.compareFrom = from;
+    this.row = to;
+    this.diff = {
+      commitId: to.commitId,
+      changeId: to.changeId,
+      description: to.summary,
+      author: { name: to.authorName, email: to.authorEmail, timestamp: to.timestamp },
+      committer: { name: to.authorName, email: to.authorEmail, timestamp: to.timestamp },
+      parents: [],
+      files: compare.files,
+    };
+    this.changesTree = buildTree(compare.files.map((f) => f.path));
+    this.el.info.innerHTML = this.compareInfoHtml(from, to);
+    const found = previousPath ? compare.files.findIndex((f) => f.path === previousPath) : -1;
+    this.fileIndex = found >= 0 ? found : 0;
+    this.renderLeft();
+    this.renderRight();
+  }
+
+  private compareInfoHtml(from: LogRow, to: LogRow): string {
+    const side = (row: LogRow, label: string) =>
+      `<div class="cmp-side"><span class="cmp-label">${label}</span><span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen, 8)}</span>` +
+      `<span class="cmp-summary">${row.summary ? escapeHtml(row.summary) : '<span class="placeholder">(no description set)</span>'}</span></div>`;
+    return (
+      `<div class="ci-summary">Comparing two commits</div>` +
+      `<div class="cmp">${side(from, "From")}${side(to, "To")}</div>` +
+      `<div class="muted cmp-hint">⌘-click another commit to change the comparison · Esc to stop comparing</div>`
+    );
+  }
+
+  private compareBanner(): string {
+    const from = this.compareFrom;
+    const to = this.row;
+    if (!from || !to) return "";
+    return (
+      `<span class="cmp-banner" title="Comparing ${from.changeId.slice(0, 8)} → ${to.changeId.slice(0, 8)}">` +
+      `<span class="id change-id">${from.changeId.slice(0, 8)}</span> → <span class="id change-id">${to.changeId.slice(0, 8)}</span></span>` +
+      `<button class="header-button" data-action="swap" title="Swap direction">⇄</button>`
+    );
   }
 
   showError(message: string) {
@@ -201,7 +266,7 @@ export class DetailsPanel {
   private renderChanges() {
     const diff = this.diff;
     if (!diff) {
-      this.el.fileHeader.innerHTML = this.row ? `<span>Changes</span>` : "";
+      this.el.fileHeader.innerHTML = this.row ? `${this.compareBanner()}<span>Changes</span>` : "";
       this.el.fileList.innerHTML = "";
       this.fileOrder = [];
       return;
@@ -212,6 +277,7 @@ export class DetailsPanel {
     const toggle = (view: ChangesView, icon: string, title: string) =>
       `<button class="header-button${this.changesView === view ? " active" : ""}" data-action="${view}" title="${title}">${icon}</button>`;
     this.el.fileHeader.innerHTML =
+      this.compareBanner() +
       `<span>${files.length} ${files.length === 1 ? "file" : "files"} changed</span>` +
       (files.length ? `<span class="stats"><span class="add">+${additions}</span> <span class="del">−${deletions}</span></span>` : "") +
       `<span class="header-buttons">${toggle("list", LIST_ICON, "Show as list")}${toggle("tree", TREE_ICON, "Show as tree")}</span>`;
@@ -219,7 +285,11 @@ export class DetailsPanel {
     if (files.length === 0) {
       // jj diffs a merge against its auto-merged parents, so a clean merge
       // has no changes of its own.
-      const message = diff.parents.length > 1 ? "Clean merge: no changes beyond its parents" : "No changes";
+      const message = this.compareFrom
+        ? "The two commits have identical contents"
+        : diff.parents.length > 1
+          ? "Clean merge: no changes beyond its parents"
+          : "No changes";
       this.el.fileList.innerHTML = `<div class="placeholder-text">${message}</div>`;
       this.fileOrder = [];
       return;

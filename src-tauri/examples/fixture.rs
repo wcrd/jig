@@ -45,6 +45,23 @@ fn main() {
             std::fs::write(dir.join(format!("{encoded}.json")), serde_json::to_string(&text).unwrap()).unwrap();
         }
     }
+    // Comparisons between nearby rows, for previewing compare mode.
+    let compare = public.join("compare");
+    std::fs::create_dir_all(&compare).unwrap();
+    let rows = &log.rows[..count.min(log.rows.len())];
+    for (i, to) in rows.iter().enumerate() {
+        for from in rows.iter().skip(i + 1).take(4) {
+            let diff = pollster::block_on(jork_lib::diff::compare_diff(
+                &open.repo,
+                open.marker_style,
+                &from.commit_id,
+                &to.commit_id,
+            ))
+            .unwrap();
+            let file = compare.join(format!("{}..{}.json", from.commit_id, to.commit_id));
+            std::fs::write(file, serde_json::to_string(&diff).unwrap()).unwrap();
+        }
+    }
     std::fs::write(public.join("fixture.json"), serde_json::to_string(&log).unwrap()).unwrap();
     println!("{} rows, diffs for {}", log.rows.len(), count.min(log.rows.len()));
 }

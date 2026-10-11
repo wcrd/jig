@@ -117,3 +117,9 @@ export interface TreeEntry {
   path: string;
   kind: "file" | "executable" | "symlink" | "submodule" | "conflict";
 }
+
+export interface CompareDiff {
+  from: string;
+  to: string;
+  files: FileDiff[];
+}
