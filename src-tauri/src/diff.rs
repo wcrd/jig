@@ -6,10 +6,10 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use bstr::{BStr, ByteSlice};
 use futures::StreamExt;
-use jj_lib::backend::{CommitId, Signature};
+use jj_lib::backend::{CommitId, Signature, TreeValue};
 use jj_lib::conflicts::{
     ConflictMarkerStyle, ConflictMaterializeOptions, MaterializedTreeDiffEntry,
-    MaterializedTreeValue, materialized_diff_stream,
+    MaterializedTreeValue, materialize_tree_value, materialized_diff_stream,
 };
 use jj_lib::copies::{CopyOperation, CopyRecords};
 use jj_lib::diff_presentation::unified::{DiffLineType, git_diff_part, unified_diff_hunks};
@@ -18,6 +18,7 @@ use jj_lib::matchers::EverythingMatcher;
 use jj_lib::merge::Diff;
 use jj_lib::object_id::ObjectId;
 use jj_lib::repo::{ReadonlyRepo, Repo};
+use jj_lib::repo_path::RepoPathBuf;
 use serde::Serialize;
 
 const CONTEXT_LINES: usize = 3;
@@ -79,6 +80,10 @@ pub struct FileDiff {
     pub omitted: bool,
     pub additions: usize,
     pub deletions: usize,
+    /// Lines in the old and new file, so the UI knows how much unchanged text
+    /// lies around the hunks.
+    pub old_line_count: usize,
+    pub new_line_count: usize,
     pub hunks: Vec<Hunk>,
 }
 
@@ -98,6 +103,14 @@ pub struct Line {
     pub kind: char,
     /// Text segments; `true` marks a changed word within a changed line.
     pub tokens: Vec<(bool, String)>,
+}
+
+fn line_count(contents: &[u8]) -> usize {
+    if contents.is_empty() {
+        return 0;
+    }
+    let newlines = contents.iter().filter(|&&b| b == b'\n').count();
+    newlines + usize::from(!contents.ends_with(b"\n"))
 }
 
 fn person(signature: &Signature) -> Person {
@@ -189,6 +202,8 @@ pub async fn commit_diff(
             omitted: false,
             additions: 0,
             deletions: 0,
+            old_line_count: line_count(&left.content.contents),
+            new_line_count: line_count(&right.content.contents),
             hunks: vec![],
         };
         if file.binary {
@@ -261,4 +276,90 @@ pub async fn commit_diff(
         parents,
         files,
     })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileText {
+    /// `None` when the file is absent, binary or too large.
+    pub text: Option<String>,
+    pub binary: bool,
+    pub too_large: bool,
+    pub conflict: bool,
+}
+
+/// A file's contents at a commit, with conflicts materialized as markers.
+pub async fn file_text(
+    repo: &Arc<ReadonlyRepo>,
+    marker_style: ConflictMarkerStyle,
+    commit_hex: &str,
+    file_path: &str,
+) -> Result<FileText> {
+    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
+    let commit = repo.store().get_commit_async(&id).await?;
+    let path = RepoPathBuf::from_internal_string(file_path)?;
+    let tree = commit.tree();
+    let value = tree.path_value(&path).await?;
+    let conflict = !value.is_resolved();
+    let materialized = materialize_tree_value(repo.store(), &path, value, tree.labels()).await?;
+    if matches!(materialized, MaterializedTreeValue::Absent | MaterializedTreeValue::Tree(_)) {
+        return Ok(FileText { text: None, binary: false, too_large: false, conflict });
+    }
+    let options = ConflictMaterializeOptions {
+        marker_style,
+        marker_len: None,
+        merge: repo.store().merge_options().clone(),
+    };
+    let part = git_diff_part(&path, materialized, &options).await?;
+    if part.content.is_binary {
+        return Ok(FileText { text: None, binary: true, too_large: false, conflict });
+    }
+    if part.content.contents.len() > MAX_FILE_BYTES {
+        return Ok(FileText { text: None, binary: false, too_large: true, conflict });
+    }
+    Ok(FileText {
+        text: Some(part.content.contents.to_str_lossy().into_owned()),
+        binary: false,
+        too_large: false,
+        conflict,
+    })
+}
+
+#[derive(Serialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum EntryKind {
+    File,
+    Executable,
+    Symlink,
+    Submodule,
+    Conflict,
+}
+
+#[derive(Serialize)]
+pub struct TreeEntry {
+    pub path: String,
+    pub kind: EntryKind,
+}
+
+/// Every file in the commit's tree, for the file browser.
+pub async fn tree_files(repo: &Arc<ReadonlyRepo>, commit_hex: &str) -> Result<Vec<TreeEntry>> {
+    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
+    let commit = repo.store().get_commit_async(&id).await?;
+    let mut entries = vec![];
+    for (path, value) in commit.tree().entries() {
+        let value = value?;
+        let kind = match value.as_resolved() {
+            Some(Some(TreeValue::File { executable: true, .. })) => EntryKind::Executable,
+            Some(Some(TreeValue::File { .. })) => EntryKind::File,
+            Some(Some(TreeValue::Symlink(_))) => EntryKind::Symlink,
+            Some(Some(TreeValue::GitSubmodule(_))) => EntryKind::Submodule,
+            Some(Some(TreeValue::Tree(_))) | Some(None) => continue,
+            None => EntryKind::Conflict,
+        };
+        entries.push(TreeEntry {
+            path: path.as_internal_file_string().to_owned(),
+            kind,
+        });
+    }
+    Ok(entries)
 }

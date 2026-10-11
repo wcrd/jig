@@ -42,12 +42,8 @@ async fn load_log(
     Ok(log)
 }
 
-#[tauri::command]
-async fn commit_diff(
-    path: String,
-    commit_id: String,
-    repos: State<'_, OpenRepos>,
-) -> Result<diff::CommitDiff, String> {
+/// The cached repo for a workspace, loading it if needed.
+async fn open_repo(path: &str, repos: &OpenRepos) -> Result<Arc<repo::OpenRepo>, String> {
     let root = repo::find_workspace_root(&PathBuf::from(&path))
         .ok_or_else(|| format!("{path} is not inside a jj repository"))?;
     let open = repos.0.lock().unwrap().get(&root).cloned();
@@ -68,12 +64,58 @@ async fn commit_diff(
             open
         }
     };
-    tauri::async_runtime::spawn_blocking(move || {
+    Ok(open)
+}
+
+/// Runs a jj-lib future on a blocking thread (its futures aren't Send).
+async fn blocking<T: Send + 'static>(
+    work: impl FnOnce() -> anyhow::Result<T> + Send + 'static,
+) -> Result<T, String> {
+    tauri::async_runtime::spawn_blocking(move || work().map_err(|e| format!("{e:#}")))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn commit_diff(
+    path: String,
+    commit_id: String,
+    repos: State<'_, OpenRepos>,
+) -> Result<diff::CommitDiff, String> {
+    let open = open_repo(&path, &repos).await?;
+    blocking(move || {
         pollster::block_on(diff::commit_diff(&open.repo, open.marker_style, &commit_id))
-            .map_err(|e| format!("{e:#}"))
     })
     .await
-    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn file_text(
+    path: String,
+    commit_id: String,
+    file_path: String,
+    repos: State<'_, OpenRepos>,
+) -> Result<diff::FileText, String> {
+    let open = open_repo(&path, &repos).await?;
+    blocking(move || {
+        pollster::block_on(diff::file_text(
+            &open.repo,
+            open.marker_style,
+            &commit_id,
+            &file_path,
+        ))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn tree_files(
+    path: String,
+    commit_id: String,
+    repos: State<'_, OpenRepos>,
+) -> Result<Vec<diff::TreeEntry>, String> {
+    let open = open_repo(&path, &repos).await?;
+    blocking(move || pollster::block_on(diff::tree_files(&open.repo, &commit_id))).await
 }
 
 #[tauri::command]
@@ -119,6 +161,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             load_log,
             commit_diff,
+            file_text,
+            tree_files,
             head_op_id,
             initial_repo
         ])

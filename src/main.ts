@@ -4,7 +4,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { renderRow } from "./rows";
-import type { CommitDiff, LogResponse } from "./types";
+import type { CommitDiff, FileText, LogResponse, TreeEntry } from "./types";
 
 const isTauri = "__TAURI_INTERNALS__" in window;
 const OVERSCAN = 8;
@@ -39,16 +39,23 @@ let detailsTimer = 0;
 let detailsRequest = 0;
 
 const details = new DetailsPanel(
-  $("commit-info"),
-  $("file-header"),
-  $("file-list"),
-  $("diff-view"),
   {
+    tabs: $("detail-tabs"),
+    info: $("commit-info"),
+    fileHeader: $("file-header"),
+    fileList: $("file-list"),
+    view: $("diff-view"),
+  },
+  {
+    fileText: (commitId, filePath) => fetchFileText(repoPath!, commitId, filePath),
+    treeFiles: (commitId) => fetchTreeFiles(repoPath!, commitId),
     selectChange(changeId) {
       const index = log?.rows.findIndex((r) => r.changeId === changeId) ?? -1;
       if (index >= 0) select(index);
     },
+    save: (key, value) => storage(key, value),
   },
+  { tab: storage("detailsTab"), changesView: storage("changesView") },
 );
 
 function storage(key: string, value?: string | null): string | null {
@@ -69,6 +76,21 @@ async function fetchLog(path: string, revset: string): Promise<LogResponse> {
   // Browser preview: serve a dump from `cargo run --example dump -- --json`.
   const response = await fetch(`/fixture.json`);
   if (!response.ok) throw new Error("No fixture.json for the browser preview");
+  return response.json();
+}
+
+// In the browser preview these come from files written by the fixture example.
+async function fetchFileText(path: string, commitId: string, filePath: string): Promise<FileText> {
+  if (isTauri) return invoke<FileText>("file_text", { path, commitId, filePath });
+  const response = await fetch(`/texts/${commitId}/${filePath.replaceAll("/", "__")}.json`);
+  if (!response.ok) throw new Error("No text in the browser preview fixture for this file");
+  return response.json();
+}
+
+async function fetchTreeFiles(path: string, commitId: string): Promise<TreeEntry[]> {
+  if (isTauri) return invoke<TreeEntry[]>("tree_files", { path, commitId });
+  const response = await fetch(`/trees/${commitId}.json`);
+  if (!response.ok) throw new Error("No tree in the browser preview fixture for this commit");
   return response.json();
 }
 

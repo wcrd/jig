@@ -40,6 +40,12 @@
       </main>
       <div id="split-details" class="splitter rows" title="Drag to resize"></div>
       <section id="details" class="details">
+        <nav id="detail-tabs" class="detail-tabs">
+          <button data-tab="commit">Commit</button>
+          <button data-tab="changes">Changes</button>
+          <button data-tab="tree">File Tree</button>
+        </nav>
+        <div class="details-body">
         <div id="info-pane" class="info-pane">
           <div id="commit-info" class="commit-info"></div>
           <div id="file-header" class="file-header"></div>
@@ -47,6 +53,7 @@
         </div>
         <div id="split-info" class="splitter columns" title="Drag to resize"></div>
         <div id="diff-view" class="diff-view"></div>
+        </div>
       </section>
     </div>
   </body>

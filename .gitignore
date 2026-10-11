@@ -5,3 +5,5 @@ src-tauri/gen/
 .DS_Store
 public/fixture.json
 public/diffs/
+public/trees/
+public/texts/

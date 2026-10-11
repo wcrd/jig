@@ -90,6 +90,8 @@ export interface FileDiff {
   omitted: boolean;
   additions: number;
   deletions: number;
+  oldLineCount: number;
+  newLineCount: number;
   hunks: Hunk[];
 }
 
@@ -101,4 +103,16 @@ export interface CommitDiff {
   committer: Person;
   parents: ParentInfo[];
   files: FileDiff[];
+}
+
+export interface FileText {
+  text: string | null;
+  binary: boolean;
+  tooLarge: boolean;
+  conflict: boolean;
+}
+
+export interface TreeEntry {
+  path: string;
+  kind: "file" | "executable" | "symlink" | "submodule" | "conflict";
 }
