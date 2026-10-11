@@ -84,6 +84,15 @@ export const jj = {
   gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),
   rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>
     invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement }),
+  newChange: (path: string, parents: string[]) => invoke<CommandOutput>("jj_new", { path, parents }),
+  edit: (path: string, revision: string) => invoke<CommandOutput>("jj_edit", { path, revision }),
+  abandon: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_abandon", { path, revisions }),
+  describe: (path: string, revision: string, message: string) =>
+    invoke<CommandOutput>("jj_describe", { path, revision, message }),
+  duplicate: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_duplicate", { path, revisions }),
+  absorb: (path: string, revision: string) => invoke<CommandOutput>("jj_absorb", { path, revision }),
+  squash: (path: string, revision: string, into: string, paths: string[] = []) =>
+    invoke<CommandOutput>("jj_squash", { path, revision, into, paths }),
   undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
   redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };

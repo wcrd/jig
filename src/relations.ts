@@ -28,6 +28,11 @@ export class Relations {
     return seen;
   }
 
+  /** A row's parents shown in the graph, first parent first. */
+  parentsOf(row: number): number[] {
+    return this.parents[row] ?? [];
+  }
+
   /** The rows and all their descendants shown in the graph. */
   descendants(rows: number[]): Set<number> {
     return this.walk(rows, this.children);

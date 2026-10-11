@@ -40,6 +40,8 @@ export interface DetailsSource {
   /** Diffs one file that was left out of the commit's diff. */
   fileDiff(from: string | null, to: string, file: FileDiff, force: boolean): Promise<FileDiff>;
   treeFiles(commitId: string): Promise<TreeEntry[]>;
+  /** Right-click on a changed file (not in compare mode). */
+  fileMenu(path: string): void;
   /** Swap the direction of the current comparison. */
   swapCompare(): void;
   /** Select a commit in the graph by change ID, e.g. when a parent is clicked. */
@@ -131,6 +133,13 @@ export class DetailsPanel {
       }
       const file = target.closest<HTMLElement>("[data-index]");
       if (file) this.selectItem(Number(file.dataset.index));
+    });
+    el.fileList.addEventListener("contextmenu", (event) => {
+      const file = (event.target as HTMLElement).closest<HTMLElement>("[data-index]");
+      if (!file || this.tab === "tree" || this.compareFrom || !this.diff) return;
+      event.preventDefault();
+      const path = this.diff.files[Number(file.dataset.index)]?.path;
+      if (path) this.source.fileMenu(path);
     });
     el.info.addEventListener("click", (event) => {
       const parent = (event.target as HTMLElement).closest<HTMLElement>("[data-change]");

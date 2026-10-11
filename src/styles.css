@@ -1815,3 +1815,61 @@ dialog.prompt input:focus {
 .toast-undo + .toast-close {
   margin-left: 4px;
 }
+
+.row.abandon-marked {
+  --node-bg: color-mix(in srgb, var(--conflict) 12%, var(--bg));
+  background: color-mix(in srgb, var(--conflict) 12%, var(--bg));
+}
+
+.row.abandon-marked .summary {
+  text-decoration: line-through;
+  color: var(--muted);
+}
+
+.modebar.abandon {
+  background: color-mix(in srgb, var(--conflict) 10%, var(--toolbar-bg));
+  border-bottom-color: color-mix(in srgb, var(--conflict) 35%, var(--border));
+}
+
+.modebar.abandon .modebar-actions button.primary {
+  border-color: var(--conflict);
+  background: var(--conflict);
+}
+
+.modebar.squash {
+  background: color-mix(in srgb, var(--lane-6) 12%, var(--toolbar-bg));
+  border-bottom-color: color-mix(in srgb, var(--lane-6) 35%, var(--border));
+}
+
+.modebar.squash .modebar-actions button.primary {
+  border-color: var(--lane-6);
+  background: var(--lane-6);
+}
+
+dialog.prompt.editor {
+  width: 560px;
+}
+
+dialog.prompt textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: 13px/1.45 ui-monospace, "SF Mono", Menlo, monospace;
+  resize: vertical;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+dialog.prompt textarea:focus {
+  border-color: var(--commit-id);
+}
+
+.prompt-hint {
+  margin-right: auto;
+  align-self: center;
+  font-size: 11.5px;
+}

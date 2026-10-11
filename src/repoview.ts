@@ -9,7 +9,7 @@ import { Relations } from "./relations";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
 import { escapeHtml } from "./format";
-import { type MenuEntry, confirm, copy, prompt, runWithToast, showMenu } from "./ui";
+import { type MenuEntry, confirm, copy, editText, prompt, runWithToast, showMenu } from "./ui";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
 const OVERSCAN = 8;
@@ -20,12 +20,14 @@ const DIFF_CACHE_SIZE = 64;
 type RebaseMode = "revision" | "source" | "branch";
 type Placement = "onto" | "after" | "before";
 
-interface RebaseState {
-  source: number;
-  mode: RebaseMode;
-  placement: Placement;
-  target: number;
-}
+/**
+ * A multi-step operation in progress, jjui-style: choose with the keyboard
+ * or mouse, then Enter to run it or Esc to cancel. Nothing changes until then.
+ */
+type Pending =
+  | { kind: "rebase"; source: number; mode: RebaseMode; placement: Placement; target: number }
+  | { kind: "squash"; source: number; target: number; paths: string[] }
+  | { kind: "abandon"; marked: Set<number> };
 
 const MODE_LABELS: Record<RebaseMode, string> = {
   revision: "This commit",
@@ -51,8 +53,7 @@ export class RepoView {
   private compareSwapped = false;
   private compareCache = new Map<string, CompareDiff>();
   private relations: Relations | null = null;
-  /** An in-progress rebase: what's moving and where to, picked before running. */
-  private rebase: RebaseState | null = null;
+  private pending: Pending | null = null;
   private modebar!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
   private loading = false;
@@ -100,6 +101,7 @@ export class RepoView {
         fileText: (commitId, filePath) => fetchFileText(this.path, commitId, filePath),
         fileDiff: (from, to, file, force) => fetchFileDiff(this.path, from, to, file.path, file.sourcePath, force),
         treeFiles: (commitId) => fetchTreeFiles(this.path, commitId),
+        fileMenu: (path) => this.fileMenu(path),
         swapCompare: () => {
           this.compareSwapped = !this.compareSwapped;
           this.scheduleDetails();
@@ -135,9 +137,14 @@ export class RepoView {
       const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
       if (!row || event.button !== 0) return;
       const index = Number(row.dataset.index);
-      if (this.rebase) {
-        // While rebasing, clicks pick the destination.
-        this.setRebaseTarget(index);
+      if (this.pending) {
+        // While picking, clicks choose the destination or toggle a mark.
+        if (this.pending.kind === "abandon") {
+          this.select(index, false);
+          this.toggleMark(index);
+        } else {
+          this.setTarget(index);
+        }
         return;
       }
       // ⌘-click picks a second commit to compare with the selected one.
@@ -153,12 +160,15 @@ export class RepoView {
     this.modebar = this.ref("modebar");
     this.modebar.addEventListener("click", (event) => {
       const button = (event.target as HTMLElement).closest<HTMLElement>("button");
-      if (!button || !this.rebase) return;
-      if (button.dataset.mode) this.rebase.mode = button.dataset.mode as RebaseMode;
-      if (button.dataset.placement) this.rebase.placement = button.dataset.placement as Placement;
-      if (button.dataset.action === "run") return this.runRebase();
-      if (button.dataset.action === "cancel") return this.cancelRebase();
-      this.updateRebase();
+      const p = this.pending;
+      if (!button || !p) return;
+      if (button.dataset.action === "run") return this.runPending();
+      if (button.dataset.action === "cancel") return this.cancelPending();
+      if (p.kind === "rebase") {
+        if (button.dataset.mode) p.mode = button.dataset.mode as RebaseMode;
+        if (button.dataset.placement) p.placement = button.dataset.placement as Placement;
+      }
+      this.updatePending();
     });
     this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
     this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
@@ -200,7 +210,7 @@ export class RepoView {
       this.log = next;
       this.graph = new Graph(next.rows, next.edges);
       this.relations = new Relations(next.rows.length, next.edges);
-      this.rebase = null;
+      this.pending = null;
       this.updateModebar();
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
       this.revsetInput.placeholder = next.defaultRevset;
@@ -259,12 +269,8 @@ export class RepoView {
   handleKey(event: KeyboardEvent): boolean {
     if (document.activeElement === this.revsetInput || !this.log) return false;
     if (event.metaKey || event.ctrlKey) return false;
-    if (this.rebase) return this.handleRebaseKey(event);
-    // b rebases the selected commit; ⇧B brings its descendants along.
-    if ((event.key === "b" || event.key === "B") && this.selected >= 0) {
-      this.startRebase(this.selected, event.shiftKey ? "source" : "revision");
-      return true;
-    }
+    if (this.pending) return this.handlePendingKey(event);
+    if (this.handleCommandKey(event)) return true;
     // ⌥↑/⌥↓ step through the selected commit's files.
     if (event.altKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       this.details.moveFile(event.key === "ArrowDown" ? 1 : -1);
@@ -288,164 +294,263 @@ export class RepoView {
     return true;
   }
 
-  // Rebase: pick a commit with b / ⇧B (or by dragging it), choose where it
-  // goes, then run it. Nothing changes until Enter or the Rebase button.
+  /** Single-key commands on the selected commit, as in jjui. */
+  private handleCommandKey(event: KeyboardEvent): boolean {
+    if (event.altKey || this.selected < 0) return false;
+    const row = this.log!.rows[this.selected];
+    switch (event.key) {
+      case "b": // rebase this commit; ⇧B with its descendants
+      case "B":
+        this.startRebase(this.selected, event.shiftKey ? "source" : "revision");
+        return true;
+      case "s":
+        this.startSquash(this.selected);
+        return true;
+      case "a":
+        this.startAbandon(this.selected);
+        return true;
+      case "n":
+        this.newChange(row);
+        return true;
+      case "e":
+        this.editCommit(row);
+        return true;
+      case "d":
+        this.describe(row);
+        return true;
+    }
+    return false;
+  }
 
   private startRebase(source: number, mode: RebaseMode, target?: number) {
-    const rows = this.log!.rows;
-    this.rebase = {
+    this.pending = {
+      kind: "rebase",
       source,
       mode,
       placement: "onto",
-      // Default to the commit's current parent's position: the row below.
-      target: target ?? Math.min(source + 1, rows.length - 1),
+      // Default to the commit's first parent: rebasing there changes nothing.
+      target: target ?? this.relations!.parentsOf(source)[0] ?? source,
     };
     this.compareIndex = -1;
-    this.updateRebase();
+    this.updatePending();
   }
 
-  private cancelRebase() {
-    this.rebase = null;
-    this.updateRebase();
+  /** Squash a commit (or just `paths` from it) into another; the parent by default. */
+  private startSquash(source: number, paths: string[] = []) {
+    const parent = this.relations!.parentsOf(source)[0];
+    this.pending = { kind: "squash", source, target: parent ?? source, paths };
+    this.compareIndex = -1;
+    this.updatePending();
   }
 
-  private setRebaseTarget(index: number) {
-    if (!this.rebase) return;
-    this.rebase.target = Math.max(0, Math.min(this.log!.rows.length - 1, index));
-    const y = this.rebase.target * ROW_HEIGHT;
+  private startAbandon(index: number) {
+    this.pending = { kind: "abandon", marked: new Set([index]) };
+    this.compareIndex = -1;
+    this.updatePending();
+  }
+
+  private toggleMark(index: number) {
+    const p = this.pending;
+    if (p?.kind !== "abandon") return;
+    if (p.marked.has(index)) p.marked.delete(index);
+    else p.marked.add(index);
+    this.updatePending();
+  }
+
+  private cancelPending() {
+    this.pending = null;
+    this.updatePending();
+  }
+
+  private setTarget(index: number) {
+    const p = this.pending;
+    if (!p || p.kind === "abandon") return;
+    p.target = Math.max(0, Math.min(this.log!.rows.length - 1, index));
+    this.reveal(p.target);
+    this.updatePending();
+  }
+
+  private reveal(index: number) {
+    const y = index * ROW_HEIGHT;
     if (y < this.scroller.scrollTop) this.scroller.scrollTop = y;
     else if (y + ROW_HEIGHT > this.scroller.scrollTop + this.scroller.clientHeight) {
       this.scroller.scrollTop = y + ROW_HEIGHT - this.scroller.clientHeight;
     }
-    this.updateRebase();
   }
 
-  /** Rows the current rebase would move, as best the loaded graph shows. */
+  /** Rows the pending rebase or squash would move, as best the loaded graph shows. */
   private movingRows(): Set<number> {
-    const r = this.rebase!;
-    const relations = this.relations!;
-    if (r.mode === "revision") return new Set([r.source]);
-    if (r.mode === "source") return relations.descendants([r.source]);
-    return relations.branch([r.source], r.target);
+    const p = this.pending!;
+    if (p.kind === "abandon") return p.marked;
+    if (p.kind === "squash" || p.mode === "revision") return new Set([p.source]);
+    if (p.mode === "source") return this.relations!.descendants([p.source]);
+    return this.relations!.branch([p.source], p.target);
   }
 
-  private rebaseProblem(): string | null {
-    const r = this.rebase!;
+  private pendingProblem(): string | null {
+    const p = this.pending!;
     const rows = this.log!.rows;
+    if (p.kind === "abandon") {
+      if (p.marked.size === 0) return "Mark commits to abandon with Space";
+      if ([...p.marked].some((i) => rows[i].immutable)) return "Some marked commits are immutable";
+      return null;
+    }
     const moving = this.movingRows();
-    if (moving.has(r.target) && !(r.mode === "revision" && r.target !== r.source)) {
+    if (p.kind === "squash") {
+      if (p.target === p.source) return "Pick another commit to squash into";
+      if (rows[p.source].immutable || rows[p.target].immutable) return "Can't squash into or from an immutable commit";
+      return null;
+    }
+    if (moving.has(p.target) && !(p.mode === "revision" && p.target !== p.source)) {
       return "Pick a destination outside the commits being moved";
     }
     if ([...moving].some((i) => rows[i].immutable)) return "Some of these commits are immutable";
     return null;
   }
 
-  private handleRebaseKey(event: KeyboardEvent): boolean {
-    const r = this.rebase!;
+  private handlePendingKey(event: KeyboardEvent): boolean {
+    const p = this.pending!;
     const page = Math.max(1, Math.floor(this.scroller.clientHeight / ROW_HEIGHT) - 1);
-    switch (event.key) {
-      case "ArrowDown":
-      case "j":
-        this.setRebaseTarget(r.target + 1);
-        return true;
-      case "ArrowUp":
-      case "k":
-        this.setRebaseTarget(r.target - 1);
-        return true;
-      case "PageDown":
-        this.setRebaseTarget(r.target + page);
-        return true;
-      case "PageUp":
-        this.setRebaseTarget(r.target - page);
-        return true;
-      case "b":
-        r.mode = "revision";
-        break;
-      case "B":
-        r.mode = "source";
-        break;
-      case "w":
-        r.mode = "branch";
-        break;
-      case "o":
-        r.placement = "onto";
-        break;
-      case "a":
-        r.placement = "after";
-        break;
-      case "A":
-        r.placement = "before";
-        break;
-      case "Enter":
-        this.runRebase();
-        return true;
-      case "Escape":
-        this.cancelRebase();
-        return true;
-      default:
-        // Swallow other keys so they don't act on the list mid-rebase.
-        return event.key.length === 1;
+    // Arrows move the destination, or for abandon the cursor.
+    const delta: Record<string, number> = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1, PageDown: page, PageUp: -page };
+    if (event.key in delta) {
+      if (p.kind === "abandon") this.select(this.selected + delta[event.key]);
+      else this.setTarget(p.target + delta[event.key]);
+      return true;
     }
-    this.updateRebase();
-    return true;
+    if (event.key === "Enter") {
+      this.runPending();
+      return true;
+    }
+    if (event.key === "Escape") {
+      this.cancelPending();
+      return true;
+    }
+    if (p.kind === "abandon" && (event.key === " " || event.key === "a")) {
+      this.toggleMark(this.selected);
+      return true;
+    }
+    if (p.kind === "rebase") {
+      const modes: Record<string, RebaseMode> = { b: "revision", B: "source", w: "branch" };
+      const placements: Record<string, Placement> = { o: "onto", a: "after", A: "before" };
+      if (event.key in modes) p.mode = modes[event.key];
+      else if (event.key in placements) p.placement = placements[event.key];
+      else return event.key.length === 1;
+      this.updatePending();
+      return true;
+    }
+    // Swallow other keys so they don't act on the list mid-operation.
+    return event.key.length === 1;
   }
 
-  private updateRebase() {
+  private updatePending() {
     this.updateModebar();
-    this.clearRowState();
     this.render();
   }
 
-  /** Forces rows to refresh their classes on the next render. */
-  private clearRowState() {
-    for (const el of this.rendered.values()) el.dataset.placement = "";
-  }
-
   private updateModebar() {
-    const r = this.rebase;
-    this.root.classList.toggle("rebasing", !!r);
-    if (!r || !this.log) {
+    const p = this.pending;
+    this.root.classList.toggle("rebasing", !!p);
+    if (!p || !this.log) {
       this.modebar.hidden = true;
       return;
     }
     const rows = this.log.rows;
     const id = (i: number) => `<span class="id change-id">${rows[i].changeId.slice(0, 8)}</span>`;
+    const summary = (i: number) =>
+      `<span class="modebar-summary">${escapeHtml(rows[i].summary || "(no description set)")}</span>`;
     const segment = <T extends string>(attr: string, value: T, current: T, label: string, key: string) =>
       `<button class="${value === current ? "active" : ""}" data-${attr}="${value}" title="${key}">${label}</button>`;
-    const problem = this.rebaseProblem();
-    const count = this.movingRows().size;
+    const problem = this.pendingProblem();
+    let body: string;
+    let action: string;
+    let hint: string;
+    if (p.kind === "rebase") {
+      const count = this.movingRows().size;
+      body =
+        `<span class="modebar-title">Rebase</span><span class="segmented">` +
+        segment("mode", "revision", p.mode, MODE_LABELS.revision, "b") +
+        segment("mode", "source", p.mode, MODE_LABELS.source, "⇧B") +
+        segment("mode", "branch", p.mode, MODE_LABELS.branch, "w") +
+        `</span>${id(p.source)}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}<span class="segmented">` +
+        segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
+        segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
+        segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "⇧A") +
+        `</span>${id(p.target)} ${summary(p.target)}`;
+      action = "Rebase";
+      hint = "↑↓ choose · Enter · Esc";
+    } else if (p.kind === "squash") {
+      const what = p.paths.length === 0 ? "" : ` <span class="muted">(${p.paths.length === 1 ? escapeHtml(p.paths[0]) : `${p.paths.length} files`})</span>`;
+      body = `<span class="modebar-title">Squash</span>${id(p.source)}${what} <span class="muted">into</span> ${id(p.target)} ${summary(p.target)}`;
+      action = "Squash";
+      hint = "↑↓ choose · Enter · Esc";
+    } else {
+      const count = p.marked.size;
+      body = `<span class="modebar-title">Abandon</span><span>${count} ${count === 1 ? "commit" : "commits"} marked</span>`;
+      action = "Abandon";
+      hint = "Space mark · Enter · Esc";
+    }
     this.modebar.hidden = false;
+    this.modebar.className = `modebar ${p.kind}`;
     this.modebar.innerHTML =
-      `<span class="modebar-title">Rebase</span>` +
-      `<span class="segmented">` +
-      segment("mode", "revision", r.mode, MODE_LABELS.revision, "b") +
-      segment("mode", "source", r.mode, MODE_LABELS.source, "⇧B") +
-      segment("mode", "branch", r.mode, MODE_LABELS.branch, "w") +
-      `</span>${id(r.source)}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}` +
-      `<span class="segmented">` +
-      segment("placement", "onto", r.placement, PLACEMENT_LABELS.onto, "o") +
-      segment("placement", "after", r.placement, PLACEMENT_LABELS.after, "a") +
-      segment("placement", "before", r.placement, PLACEMENT_LABELS.before, "⇧A") +
-      `</span>${id(r.target)} <span class="modebar-summary">${escapeHtml(rows[r.target].summary || "(no description set)")}</span>` +
+      body +
       (problem ? `<span class="modebar-problem">${escapeHtml(problem)}</span>` : "") +
-      `<span class="modebar-actions"><span class="muted">↑↓ choose · Enter · Esc</span>` +
-      `<button data-action="cancel">Cancel</button><button data-action="run" class="primary"${problem ? " disabled" : ""}>Rebase</button></span>`;
+      `<span class="modebar-actions"><span class="muted">${hint}</span>` +
+      `<button data-action="cancel">Cancel</button><button data-action="run" class="primary"${problem ? " disabled" : ""}>${action}</button></span>`;
   }
 
-  private async runRebase() {
-    const r = this.rebase;
-    if (!r || this.rebaseProblem()) return;
+  private async runPending() {
+    const p = this.pending;
+    if (!p || this.pendingProblem()) return;
     const rows = this.log!.rows;
-    const source = rows[r.source];
-    const target = rows[r.target];
-    this.rebase = null;
-    this.updateRebase();
-    const flag = { onto: "onto", after: "after", before: "before" }[r.placement];
-    await this.act(
-      `Rebase ${source.changeId.slice(0, 8)} ${flag} ${target.changeId.slice(0, 8)}`,
-      () => jj.rebase(this.path, [source.commitId], r.mode, target.commitId, r.placement),
-      { undo: true },
-    );
+    const short = (i: number) => rows[i].changeId.slice(0, 8);
+    this.pending = null;
+    this.updatePending();
+    if (p.kind === "rebase") {
+      await this.act(
+        `Rebase ${short(p.source)} ${p.placement} ${short(p.target)}`,
+        () => jj.rebase(this.path, [rows[p.source].commitId], p.mode, rows[p.target].commitId, p.placement),
+        { undo: true },
+      );
+    } else if (p.kind === "squash") {
+      await this.act(
+        `Squash ${short(p.source)} into ${short(p.target)}`,
+        () => jj.squash(this.path, rows[p.source].commitId, rows[p.target].commitId, p.paths),
+        { undo: true },
+      );
+    } else {
+      const marked = [...p.marked].sort((a, b) => a - b);
+      await this.act(
+        `Abandon ${marked.length === 1 ? short(marked[0]) : `${marked.length} commits`}`,
+        () => jj.abandon(this.path, marked.map((i) => rows[i].commitId)),
+        { undo: true },
+      );
+    }
+  }
+
+  private newChange(row: LogRow) {
+    // With a second commit ⌘-clicked, make a merge of the two.
+    const parents = [row];
+    if (this.compareIndex >= 0) parents.push(this.log!.rows[this.compareIndex]);
+    const label = parents.length > 1 ? "New merge" : `New change on ${row.changeId.slice(0, 8)}`;
+    this.act(label, () => jj.newChange(this.path, parents.map((p) => p.commitId)), { undo: true });
+  }
+
+  private editCommit(row: LogRow) {
+    this.act(`Edit ${row.changeId.slice(0, 8)}`, () => jj.edit(this.path, row.commitId), { undo: true });
+  }
+
+  private async describe(row: LogRow) {
+    // The log only has the summary; the diff carries the full message.
+    let message = row.summary;
+    try {
+      message = (this.diffCache.get(row.commitId) ?? (await fetchDiff(this.path, row.commitId))).description;
+    } catch {
+      // Edit the summary rather than nothing.
+    }
+    const edited = await editText(`Describe ${row.changeId.slice(0, 8)}`, message, "⌘↩ to save");
+    if (edited === null || edited.trim() === message.trim()) return;
+    this.act(`Describe ${row.changeId.slice(0, 8)}`, () => jj.describe(this.path, row.commitId, edited), { undo: true });
   }
 
   /** Dragging a row onto another starts a rebase there (⇧ for descendants). */
@@ -459,18 +564,20 @@ export class RepoView {
         this.startRebase(index, e.shiftKey ? "source" : "revision", index);
         this.root.classList.add("dragging");
       }
+      const p = this.pending;
       const over = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>(".row");
-      if (over && this.rebase) {
-        this.rebase.mode = e.shiftKey ? "source" : e.altKey ? "branch" : "revision";
-        if (Number(over.dataset.index) !== this.rebase.target) this.setRebaseTarget(Number(over.dataset.index));
-        else this.updateRebase();
+      if (over && p?.kind === "rebase") {
+        p.mode = e.shiftKey ? "source" : e.altKey ? "branch" : "revision";
+        if (Number(over.dataset.index) !== p.target) this.setTarget(Number(over.dataset.index));
+        else this.updatePending();
       }
     };
     const up = () => {
       window.removeEventListener("mousemove", move);
       this.root.classList.remove("dragging");
       // Dropping leaves the rebase ready to confirm, with the options visible.
-      if (dragging && this.rebase && this.rebase.target === this.rebase.source) this.cancelRebase();
+      const p = this.pending;
+      if (dragging && p?.kind === "rebase" && p.target === p.source) this.cancelPending();
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up, { once: true });
@@ -510,7 +617,7 @@ export class RepoView {
         this.rendered.delete(index);
       }
     }
-    const moving = this.rebase ? this.movingRows() : null;
+    const moving = this.pending && this.pending.kind !== "abandon" ? this.movingRows() : null;
     for (let i = first; i <= last; i++) {
       let el = this.rendered.get(i);
       if (!el) {
@@ -523,9 +630,12 @@ export class RepoView {
       }
       el.classList.toggle("selected", i === this.selected);
       el.classList.toggle("compare", i === this.compareIndex);
+      const p = this.pending;
+      const target = p && p.kind !== "abandon" ? p.target : -1;
       el.classList.toggle("rebase-moving", !!moving?.has(i));
-      el.classList.toggle("rebase-target", !!this.rebase && i === this.rebase.target);
-      el.dataset.placement = this.rebase && i === this.rebase.target ? this.rebase.placement : "";
+      el.classList.toggle("rebase-target", i === target);
+      el.classList.toggle("abandon-marked", p?.kind === "abandon" && p.marked.has(i));
+      el.dataset.placement = i === target ? (p?.kind === "rebase" ? p.placement : "onto") : "";
     }
   }
 
@@ -651,7 +761,20 @@ export class RepoView {
     if (!row) return;
     const here = row.refs.filter((r) => r.type === "bookmark").map((r) => r.name);
     const others = this.localBookmarks().filter((n) => !here.includes(n));
-    const entries: MenuEntry[] = [{ text: "New Bookmark Here…", action: () => this.createBookmark(row) }];
+    const entries: MenuEntry[] = [
+      { text: "New Change Here", action: () => this.newChange(row) },
+      { text: "Edit", action: () => this.editCommit(row), enabled: !row.immutable },
+      { text: "Describe…", action: () => this.describe(row), enabled: !row.immutable },
+      "separator",
+      { text: "Rebase…", action: () => this.startRebase(index, "revision") },
+      { text: "Rebase with Descendants…", action: () => this.startRebase(index, "source") },
+      { text: "Squash into…", action: () => this.startSquash(index), enabled: !row.immutable },
+      { text: "Absorb into Ancestors", action: () => this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true }), enabled: !row.immutable },
+      { text: "Duplicate", action: () => this.act(`Duplicate ${row.changeId.slice(0, 8)}`, () => jj.duplicate(this.path, [row.commitId]), { undo: true }) },
+      { text: "Abandon…", action: () => this.startAbandon(index), enabled: !row.immutable },
+      "separator",
+      { text: "New Bookmark Here…", action: () => this.createBookmark(row) },
+    ];
     if (others.length > 0) {
       entries.push({
         text: "Move Bookmark Here",
@@ -681,6 +804,26 @@ export class RepoView {
       { text: "Copy Description", action: () => copy(row.summary) },
     );
     showMenu(entries);
+  }
+
+  private fileMenu(path: string) {
+    const index = this.selected;
+    const row = this.log?.rows[index];
+    if (!row) return;
+    const parent = this.relations?.parentsOf(index)[0];
+    showMenu([
+      {
+        text: "Move to Parent",
+        enabled: !row.immutable && parent !== undefined && !this.log!.rows[parent].immutable,
+        action: () =>
+          this.act(`Move ${path} to parent`, () => jj.squash(this.path, row.commitId, this.log!.rows[parent!].commitId, [path]), {
+            undo: true,
+          }),
+      },
+      { text: "Move to Commit…", enabled: !row.immutable, action: () => this.startSquash(index, [path]) },
+      "separator",
+      { text: "Copy Path", action: () => copy(path) },
+    ]);
   }
 
   private sidebarMenu(item: SidebarItem) {

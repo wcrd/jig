@@ -122,3 +122,34 @@ export async function copy(text: string) {
     // Clipboard access can be refused; nothing useful to do.
   }
 }
+
+/** Edits multi-line text (a commit message); resolves to null if cancelled. */
+export function editText(title: string, initial: string, hint = ""): Promise<string | null> {
+  const dialog = document.createElement("dialog");
+  dialog.className = "prompt editor";
+  dialog.innerHTML = `<form method="dialog">
+    <div class="prompt-title">${escapeHtml(title)}</div>
+    <textarea name="value" spellcheck="true" rows="10"></textarea>
+    <div class="prompt-buttons"><span class="muted prompt-hint">${escapeHtml(hint)}</span><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Save</button></div>
+  </form>`;
+  document.body.appendChild(dialog);
+  const textarea = dialog.querySelector("textarea")!;
+  textarea.value = initial;
+  textarea.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      dialog.close("ok");
+    }
+  });
+  return new Promise((resolve) => {
+    dialog.addEventListener("close", () => {
+      const ok = dialog.returnValue === "ok";
+      const value = textarea.value;
+      dialog.remove();
+      resolve(ok ? value : null);
+    });
+    dialog.showModal();
+    textarea.focus();
+    textarea.setSelectionRange(0, 0);
+  });
+}
