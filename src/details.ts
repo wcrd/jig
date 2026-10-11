@@ -47,6 +47,8 @@ export interface DetailsElements {
   fileHeader: HTMLElement;
   fileList: HTMLElement;
   view: HTMLElement;
+  /** Holds the left pane, splitter and view. */
+  body: HTMLElement;
 }
 
 function statusBadge(status: FileStatus, conflict = false): string {
@@ -183,6 +185,8 @@ export class DetailsPanel {
       button.classList.toggle("active", button.dataset.tab === this.tab);
     }
     this.el.info.hidden = this.tab !== "commit";
+    // The Commit tab has no diff: details and files fill the panel.
+    this.el.body.classList.toggle("commit-mode", this.tab === "commit");
   }
 
   // Left side: changed files or the repository tree.
@@ -324,6 +328,12 @@ export class DetailsPanel {
       const path = this.treeEntries[index]?.path;
       if (!path || path === this.treePath) return;
       this.treePath = path;
+    } else if (this.tab === "commit") {
+      // Opening a file from the Commit tab shows its diff in Changes.
+      if (!this.diff) return;
+      this.fileIndex = index;
+      this.setTab("changes");
+      return;
     } else {
       if (!this.diff || index === this.fileIndex) return;
       this.fileIndex = index;
@@ -338,6 +348,7 @@ export class DetailsPanel {
   // Right side: the diff, or a file from the repository tree.
 
   private renderRight() {
+    if (this.tab === "commit") return;
     if (this.tab === "tree") this.renderTreeFile();
     else this.renderDiff(true);
   }

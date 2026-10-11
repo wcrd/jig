@@ -45,6 +45,7 @@ const details = new DetailsPanel(
     fileHeader: $("file-header"),
     fileList: $("file-list"),
     view: $("diff-view"),
+    body: document.querySelector<HTMLElement>(".details-body")!,
   },
   {
     fileText: (commitId, filePath) => fetchFileText(repoPath!, commitId, filePath),

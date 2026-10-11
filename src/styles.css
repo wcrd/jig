@@ -972,3 +972,17 @@ body.resizing-columns * {
 .expand.label {
   margin-right: 10px;
 }
+
+.details-body.commit-mode .info-pane {
+  flex: 1;
+  width: auto !important;
+}
+
+.details-body.commit-mode .commit-info {
+  max-height: 60%;
+}
+
+.details-body.commit-mode #split-info,
+.details-body.commit-mode .diff-view {
+  display: none;
+}
