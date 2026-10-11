@@ -14,6 +14,15 @@
   --commit-id: #2f80ed;
   --tag: #8a8fb8;
   --error-bg: #fdecea;
+  --panel-bg: #fbfbfb;
+  --add-bg: #e9f8ec;
+  --add-word: #b6ecc1;
+  --add-text: #1f8a3b;
+  --del-bg: #fdeeee;
+  --del-word: #f8c4c4;
+  --del-text: #cf3a32;
+  --hunk-bg: #f1f4f9;
+  --gutter: #b0b0b6;
 
   /* Lane colours by column. */
   --lane-0: #f5a623;
@@ -43,6 +52,15 @@
     --commit-id: #60a5fa;
     --tag: #9ea3cc;
     --error-bg: #3a1f1d;
+    --panel-bg: #212121;
+    --add-bg: #1d3323;
+    --add-word: #2c5a37;
+    --add-text: #5fd47a;
+    --del-bg: #3b2022;
+    --del-word: #6b2e31;
+    --del-text: #f2726a;
+    --hunk-bg: #262a31;
+    --gutter: #5d5d63;
 
     --lane-0: #f7ad35;
     --lane-1: #f2cd2a;
@@ -168,7 +186,7 @@ select {
   color: var(--muted);
 }
 
-.status {
+.toolbar-status {
   margin-left: auto;
   color: var(--muted);
   font-size: 12px;
@@ -189,10 +207,17 @@ select {
 
 /* Commit list */
 
+.workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .list {
   position: relative;
   flex: 1;
-  min-height: 0;
+  min-height: 80px;
 }
 
 .scroller {
@@ -423,4 +448,365 @@ select {
   flex: none;
   width: 185px;
   padding-right: 12px;
+}
+
+/* Splitters */
+
+.splitter {
+  flex: none;
+  background: var(--border);
+  position: relative;
+  z-index: 2;
+}
+
+.splitter.rows {
+  height: 1px;
+  cursor: row-resize;
+}
+
+.splitter.columns {
+  width: 1px;
+  cursor: col-resize;
+}
+
+/* A wider invisible grab area. */
+.splitter::after {
+  content: "";
+  position: absolute;
+  inset: -3px 0;
+}
+
+.splitter.columns::after {
+  inset: 0 -3px;
+}
+
+body.resizing-rows,
+body.resizing-rows * {
+  cursor: row-resize !important;
+}
+
+body.resizing-columns,
+body.resizing-columns * {
+  cursor: col-resize !important;
+}
+
+/* Details panel */
+
+.details {
+  flex: none;
+  height: 42%;
+  min-height: 120px;
+  display: flex;
+  background: var(--bg);
+}
+
+.info-pane {
+  flex: none;
+  width: 360px;
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  background: var(--panel-bg);
+}
+
+.commit-info {
+  flex: none;
+  max-height: 55%;
+  overflow-y: auto;
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+.ci-summary {
+  font-size: 13.5px;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.ci-body {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  line-height: 1.4;
+  color: var(--text);
+}
+
+.ci-person {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+  line-height: 1.35;
+}
+
+.avatar.large {
+  width: 28px;
+  height: 28px;
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.ci-meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 10px;
+  margin: 10px 0 0;
+  font-size: 12px;
+}
+
+.ci-meta dt {
+  color: var(--muted);
+}
+
+.ci-meta dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.ci-meta dd.mono .id {
+  font-size: 11.5px;
+  word-break: break-all;
+}
+
+.ci-parent {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ci-parent:hover .ci-parent-summary {
+  text-decoration: underline;
+}
+
+.ci-parent-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-header {
+  flex: none;
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 0;
+}
+
+.file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 24px;
+  padding: 0 14px 0 10px;
+  white-space: nowrap;
+}
+
+.file:hover {
+  background: var(--hover);
+}
+
+.file.selected {
+  background: var(--selected);
+}
+
+.file .path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file .dir {
+  color: var(--muted);
+  margin-left: 6px;
+  font-size: 12px;
+}
+
+.stats {
+  flex: none;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.add {
+  color: var(--add-text);
+}
+
+.del {
+  color: var(--del-text);
+}
+
+.status {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.status.added {
+  background: var(--lane-4);
+}
+
+.status.modified {
+  background: var(--lane-0);
+}
+
+.status.deleted {
+  background: var(--lane-2);
+}
+
+.status.renamed,
+.status.copied {
+  background: var(--lane-5);
+}
+
+.status.conflict {
+  background: var(--conflict);
+}
+
+.placeholder-text {
+  padding: 14px;
+  color: var(--muted);
+}
+
+.error-text {
+  color: var(--conflict);
+  white-space: pre-wrap;
+}
+
+/* Diff view */
+
+.diff-view {
+  flex: 1;
+  min-width: 0;
+  overflow: auto;
+  position: relative;
+}
+
+.diff-header {
+  position: sticky;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 31px;
+  padding: 0 12px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.diff-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.diff-header .pill {
+  font-weight: normal;
+}
+
+.diff-lines {
+  display: inline-block;
+  min-width: 100%;
+  padding-bottom: 8px;
+  font: 12px/18px ui-monospace, "SF Mono", Menlo, monospace;
+  tab-size: 4;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.line {
+  display: flex;
+  white-space: pre;
+}
+
+.line .no {
+  flex: none;
+  position: sticky;
+  width: 46px;
+  padding-right: 8px;
+  text-align: right;
+  color: var(--gutter);
+  background: var(--bg);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.line .no:first-child {
+  left: 0;
+}
+
+.line .no:nth-child(2) {
+  left: 46px;
+  border-right: 1px solid var(--border);
+}
+
+.line .code {
+  flex: 1;
+  padding: 0 12px 0 10px;
+}
+
+.line.add .code {
+  background: var(--add-bg);
+}
+
+.line.del .code {
+  background: var(--del-bg);
+}
+
+.line.add .no {
+  background: color-mix(in srgb, var(--add-bg) 70%, var(--bg));
+}
+
+.line.del .no {
+  background: color-mix(in srgb, var(--del-bg) 70%, var(--bg));
+}
+
+.line.add .w {
+  background: var(--add-word);
+  border-radius: 2px;
+}
+
+.line.del .w {
+  background: var(--del-word);
+  border-radius: 2px;
+}
+
+.line.hunk {
+  margin-top: 6px;
+}
+
+.line.hunk:first-child {
+  margin-top: 0;
+}
+
+.line.hunk .code,
+.line.hunk .no {
+  background: var(--hunk-bg);
+  color: var(--muted);
 }

@@ -1,0 +1,264 @@
+//! Commit details and file diffs, computed the way `jj diff` does: against
+//! the auto-merged parents, with rename detection and word-level changes.
+
+use std::sync::Arc;
+
+use anyhow::{Result, anyhow};
+use bstr::{BStr, ByteSlice};
+use futures::StreamExt;
+use jj_lib::backend::{CommitId, Signature};
+use jj_lib::conflicts::{
+    ConflictMarkerStyle, ConflictMaterializeOptions, MaterializedTreeDiffEntry,
+    MaterializedTreeValue, materialized_diff_stream,
+};
+use jj_lib::copies::{CopyOperation, CopyRecords};
+use jj_lib::diff_presentation::unified::{DiffLineType, git_diff_part, unified_diff_hunks};
+use jj_lib::diff_presentation::{DiffTokenType, LineCompareMode};
+use jj_lib::matchers::EverythingMatcher;
+use jj_lib::merge::Diff;
+use jj_lib::object_id::ObjectId;
+use jj_lib::repo::{ReadonlyRepo, Repo};
+use serde::Serialize;
+
+const CONTEXT_LINES: usize = 3;
+/// Files bigger than this aren't diffed.
+const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+/// Once a commit's diff reaches this many lines, remaining files are listed
+/// without their diffs.
+const MAX_TOTAL_LINES: usize = 40_000;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommitDiff {
+    pub commit_id: String,
+    pub change_id: String,
+    pub description: String,
+    pub author: Person,
+    pub committer: Person,
+    pub parents: Vec<ParentInfo>,
+    pub files: Vec<FileDiff>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Person {
+    pub name: String,
+    pub email: String,
+    pub timestamp: i64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParentInfo {
+    pub commit_id: String,
+    pub change_id: String,
+    pub summary: String,
+}
+
+#[derive(Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum FileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+    Copied,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileDiff {
+    pub path: String,
+    /// Where a renamed or copied file came from.
+    pub source_path: Option<String>,
+    pub status: FileStatus,
+    pub conflict: bool,
+    pub binary: bool,
+    /// The diff wasn't computed: the file is too big, or the commit's diff
+    /// already hit the size budget.
+    pub omitted: bool,
+    pub additions: usize,
+    pub deletions: usize,
+    pub hunks: Vec<Hunk>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Hunk {
+    pub old_start: usize,
+    pub old_count: usize,
+    pub new_start: usize,
+    pub new_count: usize,
+    pub lines: Vec<Line>,
+}
+
+#[derive(Serialize)]
+pub struct Line {
+    /// ' ', '+' or '-'.
+    pub kind: char,
+    /// Text segments; `true` marks a changed word within a changed line.
+    pub tokens: Vec<(bool, String)>,
+}
+
+fn person(signature: &Signature) -> Person {
+    Person {
+        name: signature.name.clone(),
+        email: signature.email.clone(),
+        timestamp: signature.timestamp.timestamp.0,
+    }
+}
+
+fn summary(description: &str) -> String {
+    description.lines().next().unwrap_or("").to_owned()
+}
+
+pub async fn commit_diff(
+    repo: &Arc<ReadonlyRepo>,
+    marker_style: ConflictMarkerStyle,
+    commit_hex: &str,
+) -> Result<CommitDiff> {
+    let store = repo.store();
+    let id = CommitId::try_from_hex(commit_hex).ok_or_else(|| anyhow!("bad commit id"))?;
+    let commit = store.get_commit_async(&id).await?;
+
+    let mut parents = vec![];
+    for parent in commit.parents().await? {
+        parents.push(ParentInfo {
+            commit_id: parent.id().hex(),
+            change_id: parent.change_id().reverse_hex(),
+            summary: summary(parent.description()),
+        });
+    }
+
+    let from_tree = commit.parent_tree(repo.as_ref()).await?;
+    let to_tree = commit.tree();
+    let mut copy_records = CopyRecords::default();
+    for parent_id in commit.parent_ids() {
+        let records: Vec<_> = store
+            .get_copy_records(None, parent_id, commit.id())?
+            .collect::<Vec<_>>()
+            .await
+            .into_iter()
+            .collect::<Result<_, _>>()?;
+        copy_records.add_records(records);
+    }
+
+    let materialize_options = ConflictMaterializeOptions {
+        marker_style,
+        marker_len: None,
+        merge: store.merge_options().clone(),
+    };
+    let tree_diff = from_tree.diff_stream_with_copies(&to_tree, &EverythingMatcher, &copy_records);
+    let mut stream = materialized_diff_stream(
+        store,
+        tree_diff,
+        Diff::new(from_tree.labels(), to_tree.labels()),
+    );
+
+    let mut files = vec![];
+    let mut total_lines = 0;
+    while let Some(MaterializedTreeDiffEntry { path, values }) = stream.next().await {
+        let values = values?;
+        let status = match &path.source {
+            Some((_, CopyOperation::Rename)) => FileStatus::Renamed,
+            Some((_, CopyOperation::Copy)) => FileStatus::Copied,
+            None if matches!(values.before, MaterializedTreeValue::Absent) => FileStatus::Added,
+            None if matches!(values.after, MaterializedTreeValue::Absent) => FileStatus::Deleted,
+            None => FileStatus::Modified,
+        };
+        let is_conflict = |v: &MaterializedTreeValue| {
+            matches!(
+                v,
+                MaterializedTreeValue::FileConflict(_) | MaterializedTreeValue::OtherConflict { .. }
+            )
+        };
+        let conflict = is_conflict(&values.before) || is_conflict(&values.after);
+
+        let left = git_diff_part(path.source(), values.before, &materialize_options).await?;
+        let right = git_diff_part(path.target(), values.after, &materialize_options).await?;
+
+        let mut file = FileDiff {
+            path: path.target().as_internal_file_string().to_owned(),
+            source_path: path
+                .source
+                .as_ref()
+                .map(|(source, _)| source.as_internal_file_string().to_owned()),
+            status,
+            conflict,
+            binary: left.content.is_binary || right.content.is_binary,
+            omitted: false,
+            additions: 0,
+            deletions: 0,
+            hunks: vec![],
+        };
+        if file.binary {
+            files.push(file);
+            continue;
+        }
+        if total_lines >= MAX_TOTAL_LINES
+            || left.content.contents.len() > MAX_FILE_BYTES
+            || right.content.contents.len() > MAX_FILE_BYTES
+        {
+            file.omitted = true;
+            files.push(file);
+            continue;
+        }
+
+        let contents: Diff<&BStr> = Diff::new(
+            left.content.contents.as_bstr(),
+            right.content.contents.as_bstr(),
+        );
+        for hunk in unified_diff_hunks(contents, CONTEXT_LINES, LineCompareMode::Exact) {
+            let lines: Vec<Line> = hunk
+                .lines
+                .iter()
+                .map(|(kind, tokens)| {
+                    let kind = match kind {
+                        DiffLineType::Context => ' ',
+                        DiffLineType::Added => '+',
+                        DiffLineType::Removed => '-',
+                    };
+                    let mut tokens: Vec<(bool, String)> = tokens
+                        .iter()
+                        .map(|(token_type, bytes)| {
+                            (
+                                *token_type == DiffTokenType::Different,
+                                bytes.to_str_lossy().into_owned(),
+                            )
+                        })
+                        .collect();
+                    if let Some((_, last)) = tokens.last_mut()
+                        && last.ends_with('\n')
+                    {
+                        last.pop();
+                        if last.ends_with('\r') {
+                            last.pop();
+                        }
+                    }
+                    Line { kind, tokens }
+                })
+                .collect();
+            file.additions += lines.iter().filter(|l| l.kind == '+').count();
+            file.deletions += lines.iter().filter(|l| l.kind == '-').count();
+            total_lines += lines.len();
+            file.hunks.push(Hunk {
+                old_start: hunk.left_line_range.start + 1,
+                old_count: hunk.left_line_range.len(),
+                new_start: hunk.right_line_range.start + 1,
+                new_count: hunk.right_line_range.len(),
+                lines,
+            });
+        }
+        files.push(file);
+    }
+
+    Ok(CommitDiff {
+        commit_id: commit.id().hex(),
+        change_id: commit.change_id().reverse_hex(),
+        description: commit.description().trim_end().to_owned(),
+        author: person(commit.author()),
+        committer: person(commit.committer()),
+        parents,
+        files,
+    })
+}

@@ -1,7 +1,17 @@
+pub mod diff;
 pub mod layout;
 pub mod repo;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+use tauri::State;
+
+/// The repo from the most recent log load per workspace, so diffs of any
+/// commit in the log can be computed without reloading.
+#[derive(Default)]
+struct OpenRepos(Mutex<HashMap<PathBuf, Arc<repo::OpenRepo>>>);
 
 /// Rows beyond this are dropped; the frontend says the view is truncated.
 const DEFAULT_LIMIT: usize = 20_000;
@@ -11,15 +21,56 @@ async fn load_log(
     path: String,
     revset: Option<String>,
     limit: Option<usize>,
+    repos: State<'_, OpenRepos>,
 ) -> Result<repo::LogResponse, String> {
     // jj-lib's futures aren't Send, so run them on a blocking thread.
-    tauri::async_runtime::spawn_blocking(move || {
+    let (log, open) = tauri::async_runtime::spawn_blocking(move || {
         repo::load_log(
             &PathBuf::from(path),
             revset.as_deref(),
             limit.unwrap_or(DEFAULT_LIMIT),
         )
         .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    repos
+        .0
+        .lock()
+        .unwrap()
+        .insert(open.root.clone(), Arc::new(open));
+    Ok(log)
+}
+
+#[tauri::command]
+async fn commit_diff(
+    path: String,
+    commit_id: String,
+    repos: State<'_, OpenRepos>,
+) -> Result<diff::CommitDiff, String> {
+    let root = repo::find_workspace_root(&PathBuf::from(&path))
+        .ok_or_else(|| format!("{path} is not inside a jj repository"))?;
+    let open = repos.0.lock().unwrap().get(&root).cloned();
+    let open = match open {
+        Some(open) => open,
+        None => {
+            let (_, open) = tauri::async_runtime::spawn_blocking(move || {
+                repo::load_log(&root, Some("none()"), 0).map_err(|e| format!("{e:#}"))
+            })
+            .await
+            .map_err(|e| e.to_string())??;
+            let open = Arc::new(open);
+            repos
+                .0
+                .lock()
+                .unwrap()
+                .insert(open.root.clone(), open.clone());
+            open
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        pollster::block_on(diff::commit_diff(&open.repo, open.marker_style, &commit_id))
+            .map_err(|e| format!("{e:#}"))
     })
     .await
     .map_err(|e| e.to_string())?
@@ -64,7 +115,13 @@ fn initial_repo() -> Option<InitialRepo> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![load_log, head_op_id, initial_repo])
+        .manage(OpenRepos::default())
+        .invoke_handler(tauri::generate_handler![
+            load_log,
+            commit_diff,
+            head_op_id,
+            initial_repo
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

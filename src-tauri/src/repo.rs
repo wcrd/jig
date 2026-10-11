@@ -15,6 +15,7 @@ use jj_cli::revset_util;
 use jj_cli::ui::Ui;
 use jj_lib::backend::CommitId;
 use jj_lib::config::{ConfigNamePathBuf, StackedConfig};
+use jj_lib::conflicts::ConflictMarkerStyle;
 use jj_lib::fileset::FilesetAliasesMap;
 use jj_lib::git::REMOTE_NAME_FOR_LOCAL_GIT_REPO;
 use jj_lib::graph::{GraphEdgeType, TopoGroupedGraphIterator};
@@ -248,7 +249,18 @@ fn evaluate<'r>(
     Ok(resolved.evaluate(repo)?)
 }
 
-pub fn load_log(path: &Path, revset_text: Option<&str>, limit: usize) -> Result<LogResponse> {
+/// A repo loaded at some operation, kept around for computing diffs.
+pub struct OpenRepo {
+    pub root: PathBuf,
+    pub repo: Arc<ReadonlyRepo>,
+    pub marker_style: ConflictMarkerStyle,
+}
+
+pub fn load_log(
+    path: &Path,
+    revset_text: Option<&str>,
+    limit: usize,
+) -> Result<(LogResponse, OpenRepo)> {
     pollster::block_on(load_log_async(path, revset_text, limit))
 }
 
@@ -256,7 +268,7 @@ async fn load_log_async(
     path: &Path,
     revset_text: Option<&str>,
     limit: usize,
-) -> Result<LogResponse> {
+) -> Result<(LogResponse, OpenRepo)> {
     let started = Instant::now();
     let root = find_workspace_root(path)
         .ok_or_else(|| anyhow!("{} is not inside a jj repository", path.display()))?;
@@ -429,8 +441,11 @@ async fn load_log_async(
         });
     }
 
+    let marker_style = settings
+        .get("ui.conflict-marker-style")
+        .unwrap_or(ConflictMarkerStyle::Diff);
     let operation = repo.operation();
-    Ok(LogResponse {
+    let response = LogResponse {
         workspace_root: root.display().to_string(),
         workspace_name: workspace.workspace_name().as_symbol().to_string(),
         op_id: operation.id().hex()[..12].to_owned(),
@@ -442,7 +457,15 @@ async fn load_log_async(
         max_width: layout.max_width,
         truncated,
         elapsed_ms: started.elapsed().as_millis() as u64,
-    })
+    };
+    Ok((
+        response,
+        OpenRepo {
+            root,
+            repo: repo.clone(),
+            marker_style,
+        },
+    ))
 }
 
 /// Current operation id, used to detect changes made by jj elsewhere.

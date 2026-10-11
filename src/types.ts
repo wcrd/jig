@@ -52,3 +52,53 @@ export interface LogResponse {
   truncated: boolean;
   elapsedMs: number;
 }
+
+export interface Person {
+  name: string;
+  email: string;
+  timestamp: number;
+}
+
+export interface ParentInfo {
+  commitId: string;
+  changeId: string;
+  summary: string;
+}
+
+export type FileStatus = "added" | "modified" | "deleted" | "renamed" | "copied";
+
+export interface DiffLine {
+  kind: " " | "+" | "-";
+  /** Text segments; `true` marks a changed word. */
+  tokens: [boolean, string][];
+}
+
+export interface Hunk {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  lines: DiffLine[];
+}
+
+export interface FileDiff {
+  path: string;
+  sourcePath: string | null;
+  status: FileStatus;
+  conflict: boolean;
+  binary: boolean;
+  omitted: boolean;
+  additions: number;
+  deletions: number;
+  hunks: Hunk[];
+}
+
+export interface CommitDiff {
+  commitId: string;
+  changeId: string;
+  description: string;
+  author: Person;
+  committer: Person;
+  parents: ParentInfo[];
+  files: FileDiff[];
+}

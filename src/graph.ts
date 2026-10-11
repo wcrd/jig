@@ -56,6 +56,38 @@ export interface Viewport {
   height: number;
 }
 
+/**
+ * Snaps graph coordinates to the device pixel grid. Lines are a whole number
+ * of device pixels wide, and centred so their edges fall on pixel boundaries,
+ * which keeps them sharp on Retina displays instead of smeared across two
+ * pixels.
+ */
+class Pixels {
+  readonly lineWidth: number;
+  readonly nodeStroke: number;
+  private offset: number;
+
+  constructor(readonly dpr: number) {
+    const device = Math.max(1, Math.round(LINE_WIDTH * dpr));
+    this.lineWidth = device / dpr;
+    this.nodeStroke = device / dpr;
+    // Odd widths need centres on pixel centres; even ones on boundaries.
+    this.offset = (device % 2) / 2;
+  }
+
+  snap(value: number): number {
+    return (Math.round(value * this.dpr - this.offset) + this.offset) / this.dpr;
+  }
+
+  x(lane: number): number {
+    return this.snap(laneX(lane));
+  }
+
+  y(row: number): number {
+    return this.snap(rowY(row));
+  }
+}
+
 export function drawGraph(
   canvas: HTMLCanvasElement,
   rows: LogRow[],
@@ -74,14 +106,16 @@ export function drawGraph(
   }
 
   const ctx = canvas.getContext("2d")!;
-  ctx.setTransform(dpr, 0, 0, dpr, 0, -view.scrollTop * dpr);
-  ctx.clearRect(0, view.scrollTop, view.width, view.height);
+  // Scroll by whole device pixels so snapped coordinates stay snapped.
+  const scrollPixels = Math.round(view.scrollTop * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, -scrollPixels);
+  ctx.clearRect(0, scrollPixels / dpr, view.width, view.height);
+  const px = new Pixels(dpr);
 
   const first = Math.floor(view.scrollTop / ROW_HEIGHT) - 1;
   const last = Math.ceil((view.scrollTop + view.height) / ROW_HEIGHT) + 1;
   const bottom = rows.length * ROW_HEIGHT;
 
-  ctx.lineWidth = LINE_WIDTH;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 
@@ -89,19 +123,27 @@ export function drawGraph(
     if (edge.fromRow > last) continue;
     if (edge.toRow !== null && edge.toRow < first) continue;
     if (edge.toRow === null && edge.kind === "missing" && edge.fromRow < first) continue;
-    drawEdge(ctx, edge, laneColor(palette, edge.lane), bottom);
+    drawEdge(ctx, px, edge, laneColor(palette, edge.lane), bottom);
   }
 
   const end = Math.min(last, rows.length - 1);
   for (let i = Math.max(first, 0); i <= end; i++) {
-    drawNode(ctx, rows[i], rowY(i), palette);
+    drawNode(ctx, px, rows[i], i, palette);
   }
 }
 
-function drawEdge(ctx: CanvasRenderingContext2D, edge: EdgeLayout, color: string, bottom: number) {
-  const x0 = laneX(edge.fromLane);
-  const xe = laneX(edge.lane);
-  const y0 = rowY(edge.fromRow);
+function drawEdge(
+  ctx: CanvasRenderingContext2D,
+  px: Pixels,
+  edge: EdgeLayout,
+  color: string,
+  bottom: number,
+) {
+  const x0 = px.x(edge.fromLane);
+  const xe = px.x(edge.lane);
+  const y0 = px.y(edge.fromRow);
+
+  ctx.lineWidth = px.lineWidth;
 
   ctx.strokeStyle = color;
   ctx.setLineDash(edge.kind === "direct" ? [] : [2, 3]);
@@ -120,8 +162,8 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: EdgeLayout, color: string
   }
 
   const toRow = edge.toRow;
-  const xt = laneX(edge.toLane);
-  const y1 = toRow === null ? bottom : rowY(toRow);
+  const xt = px.x(edge.toLane);
+  const y1 = toRow === null ? bottom : px.y(toRow);
   const adjacent = toRow !== null && toRow === edge.fromRow + 1;
 
   const bendsOut = xe !== x0;
@@ -153,11 +195,12 @@ function drawEdge(ctx: CanvasRenderingContext2D, edge: EdgeLayout, color: string
   ctx.stroke();
 }
 
-function drawNode(ctx: CanvasRenderingContext2D, row: LogRow, y: number, palette: Palette) {
-  const x = laneX(row.lane);
+function drawNode(ctx: CanvasRenderingContext2D, px: Pixels, row: LogRow, index: number, palette: Palette) {
+  const x = px.x(row.lane);
+  const y = px.y(index);
   const color = laneColor(palette, row.lane);
   ctx.setLineDash([]);
-  ctx.lineWidth = 1.5;
+  ctx.lineWidth = px.nodeStroke;
 
   const circle = (r: number) => {
     ctx.beginPath();
@@ -181,7 +224,7 @@ function drawNode(ctx: CanvasRenderingContext2D, row: LogRow, y: number, palette
     circle(5.75);
     ctx.fillStyle = palette.background;
     ctx.fill();
-    ctx.lineWidth = 2;
+    ctx.lineWidth = Math.round(2 * px.dpr) / px.dpr;
     ctx.strokeStyle = color;
     ctx.stroke();
     circle(2.5);

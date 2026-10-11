@@ -3385,6 +3385,7 @@ name = "jork"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bstr",
  "chrono",
  "futures 0.3.34",
  "jj-cli",

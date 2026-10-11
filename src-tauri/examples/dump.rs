@@ -9,7 +9,7 @@ fn main() {
     args.retain(|a| a != "--json");
     let path = std::path::PathBuf::from(args.get(1).expect("repo path"));
     let limit = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(40);
-    let log = jork_lib::repo::load_log(&path, args.get(2).map(String::as_str), limit).unwrap();
+    let (log, _) = jork_lib::repo::load_log(&path, args.get(2).map(String::as_str), limit).unwrap();
     if json {
         println!("{}", serde_json::to_string(&log).unwrap());
         return;

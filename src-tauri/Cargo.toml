@@ -24,3 +24,8 @@ futures = "0.3"
 # Pinned to the installed jj CLI so the on-disk repo formats always agree.
 jj-lib = "=0.40.0"
 jj-cli = "=0.40.0"
+bstr = "1"
+
+# Optimise dependencies (jj-lib's diffing especially) even in dev builds.
+[profile.dev.package."*"]
+opt-level = 2

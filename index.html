@@ -25,18 +25,30 @@
       <button id="refresh" class="icon-button" title="Reload (⌘R)">
         <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </button>
-      <div id="status" class="status"></div>
+      <div id="status" class="toolbar-status"></div>
     </header>
     <div id="error" class="error" hidden></div>
-    <main id="list" class="list">
-      <div id="scroller" class="scroller">
-        <div id="spacer" class="spacer"></div>
-      </div>
-      <canvas id="graph" class="graph"></canvas>
-      <div id="empty" class="empty" hidden>
-        <p>Open a jj repository to see its graph.</p>
-        <button id="empty-open">Open Repository…</button>
-      </div>
-    </main>
+    <div class="workspace">
+      <main id="list" class="list">
+        <div id="scroller" class="scroller">
+          <div id="spacer" class="spacer"></div>
+        </div>
+        <canvas id="graph" class="graph"></canvas>
+        <div id="empty" class="empty" hidden>
+          <p>Open a jj repository to see its graph.</p>
+          <button id="empty-open">Open Repository…</button>
+        </div>
+      </main>
+      <div id="split-details" class="splitter rows" title="Drag to resize"></div>
+      <section id="details" class="details">
+        <div id="info-pane" class="info-pane">
+          <div id="commit-info" class="commit-info"></div>
+          <div id="file-header" class="file-header"></div>
+          <div id="file-list" class="file-list"></div>
+        </div>
+        <div id="split-info" class="splitter columns" title="Drag to resize"></div>
+        <div id="diff-view" class="diff-view"></div>
+      </section>
+    </div>
   </body>
 </html>
