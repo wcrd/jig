@@ -1944,6 +1944,35 @@ dialog.prompt textarea:focus {
   display: none;
 }
 
+/* d: the details panel takes the whole window. */
+.repo-view.full-diff :is(.sidebar, [data-ref="split-sidebar"], .list, [data-ref="split-details"]) {
+  display: none;
+}
+
+.repo-view.full-diff .details {
+  flex: 1;
+  height: auto !important;
+}
+
+.detail-tabs .full-diff-exit {
+  display: none;
+  order: 1;
+  margin-left: auto;
+  padding: 2px 8px;
+}
+
+.repo-view.full-diff .detail-tabs .full-diff-exit {
+  display: block;
+}
+
+.full-diff-exit kbd {
+  margin-left: 4px;
+  padding: 0 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font: 10.5px ui-monospace, "SF Mono", Menlo, monospace;
+}
+
 .icon-button.active {
   background: var(--selected);
   border-color: var(--border);

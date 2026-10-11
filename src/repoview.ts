@@ -77,6 +77,7 @@ export class RepoView {
   // Diffs are cached by commit ID: a commit's content never changes.
   private diffCache = new Map<string, CommitDiff>();
   private detailsTimer = 0;
+  private fullDiff = false;
   private detailsRequest = 0;
   private details: DetailsPanel;
   private sidebar: Sidebar;
@@ -222,6 +223,7 @@ export class RepoView {
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
     this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
     this.ref("help").addEventListener("click", () => showHelp());
+    this.ref("full-diff-exit").addEventListener("click", () => this.toggleFullDiff());
     this.ref("settings").addEventListener("click", () => showSettings());
     this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
     this.ref("redo").addEventListener("click", () => this.act("Redo", () => jj.redo(this.path)));
@@ -407,6 +409,10 @@ export class RepoView {
       Home: 0,
       End: this.log.rows.length - 1,
     };
+    if (event.key === "Escape" && this.fullDiff) {
+      this.toggleFullDiff();
+      return true;
+    }
     if (event.key === "Escape" && this.compareIndex >= 0) {
       this.setCompare(-1);
       return true;
@@ -479,7 +485,7 @@ export class RepoView {
         this.describe(row);
         return true;
       case "d":
-        this.details.setTab("changes");
+        this.toggleFullDiff();
         return true;
       case "y":
         this.startPlaced("duplicate", this.selected);
@@ -508,6 +514,13 @@ export class RepoView {
       }
     }
     return false;
+  }
+
+  /** d: the details panel fills the window, as jjui's diff view does. j / k still move. */
+  private toggleFullDiff() {
+    this.fullDiff = !this.fullDiff;
+    if (this.fullDiff) this.details.setTab("changes");
+    this.root.classList.toggle("full-diff", this.fullDiff);
   }
 
   /** ⇧B: point a bookmark at the commit, creating it or moving it there. */

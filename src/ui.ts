@@ -171,7 +171,7 @@ const HELP: [string, [string, string][]][] = [
       ["n", "New change"],
       ["e", "Edit"],
       ["↩  ⇧D", "Describe"],
-      ["d", "Show changes"],
+      ["d", "Full-size diff"],
       ["r", "Rebase"],
       ["⇧S", "Squash"],
       ["s", "Split"],
