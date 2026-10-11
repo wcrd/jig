@@ -22,10 +22,10 @@ npm install
 npm run tauri dev
 ```
 
-Jork opens the repo given as its first argument, then `$JORK_REPO`, then the current directory. Under `tauri dev` the environment variable is easiest:
+Jig opens the repo given as its first argument, then `$JIG_REPO`, then the current directory. Under `tauri dev` the environment variable is easiest:
 
 ```bash
-JORK_REPO=/path/to/repo npm run tauri dev
+JIG_REPO=/path/to/repo npm run tauri dev
 ```
 
 Build the `.app` and `.dmg` (in `src-tauri/target/release/bundle/`) for a release with:
@@ -36,7 +36,7 @@ npm run tauri build
 
 ## Playground repo
 
-`scripts/make-playground.sh` builds a throwaway repo at `../jork-playground/repo` with a local remote, several authors, merges, bookmarks, a conflict, a divergent change and a second workspace. Re-run it to reset.
+`scripts/make-playground.sh` builds a throwaway repo at `../jig-playground/repo` with a local remote, several authors, merges, bookmarks, a conflict, a divergent change and a second workspace. Re-run it to reset.
 
 ```bash
 scripts/make-playground.sh
@@ -47,7 +47,7 @@ scripts/make-playground.sh
 `npm run dev` serves the UI at http://localhost:1420 without Tauri. Data comes from fixture files in `public/` (gitignored), written by:
 
 ```bash
-cd src-tauri && cargo run --example fixture -- ../../jork-playground/repo 'all()'
+cd src-tauri && cargo run --example fixture -- ../../jig-playground/repo 'all()'
 ```
 
 Actions that change the repo only work in the app.

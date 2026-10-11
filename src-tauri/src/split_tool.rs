@@ -1,4 +1,4 @@
-//! The jork binary doubles as a `jj split` diff editor: jj hands it a `$left`
+//! The jig binary doubles as a `jj split` diff editor: jj hands it a `$left`
 //! and `$right` directory and whatever is left in `$right` becomes the first
 //! commit. A plan file says which files and hunks the user selected.
 
@@ -273,7 +273,7 @@ pub fn apply_plan(plan: &SplitPlan, left: &Path, right: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Entry point for `jork --split-plan <plan.json> <left> <right>`.
+/// Entry point for `jig --split-plan <plan.json> <left> <right>`.
 pub fn run(plan: &str, left: &str, right: &str) -> Result<()> {
     let text = fs::read_to_string(plan).with_context(|| format!("read {plan}"))?;
     let plan: SplitPlan = serde_json::from_str(&text).context("parse split plan")?;
@@ -424,7 +424,7 @@ mod tests {
     struct Dirs(PathBuf);
     impl Dirs {
         fn new(name: &str) -> Dirs {
-            let d = std::env::temp_dir().join(format!("jork-split-{name}-{}", std::process::id()));
+            let d = std::env::temp_dir().join(format!("jig-split-{name}-{}", std::process::id()));
             let _ = fs::remove_dir_all(&d);
             fs::create_dir_all(d.join("left")).unwrap();
             fs::create_dir_all(d.join("right")).unwrap();

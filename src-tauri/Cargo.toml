@@ -1,11 +1,11 @@
 [package]
-name = "jork"
+name = "jig"
 version = "0.1.0"
 description = "A GUI graph viewer for Jujutsu"
 edition = "2024"
 
 [lib]
-name = "jork_lib"
+name = "jig_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

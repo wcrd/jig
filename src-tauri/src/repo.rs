@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn op_changes_reports_rewrite_and_bookmark() {
-        let dir = std::env::temp_dir().join(format!("jork-opchanges-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("jig-opchanges-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         if !jj(&dir, &["git", "init"]) {
@@ -1075,7 +1075,7 @@ mod tests {
 
     #[test]
     fn reports_ahead_and_remote_url() {
-        let dir = std::env::temp_dir().join(format!("jork-ahead-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("jig-ahead-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let bare = dir.join("origin.git");

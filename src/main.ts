@@ -42,7 +42,7 @@ function renderTabs() {
     })
     .join("");
   emptyEl.hidden = views.length > 0;
-  document.title = active ? `${active.name} — Jork` : "Jork";
+  document.title = active ? `${active.name} — Jig` : "Jig";
 }
 
 function activate(view: RepoView) {

@@ -1,16 +1,23 @@
-# Jork
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/jig-dark.svg">
+    <img src="docs/logo/jig-light.svg" alt="jig" width="140">
+  </picture>
+</p>
+
+# Jig
 
 A desktop GUI for [Jujutsu](https://github.com/jj-vcs/jj), built with Tauri and `jj-lib`.
 
 Inspired by `jjui` and `Fork (git)`.
 
-### Why Jork
+### Why Jig
 
 For 90% of my `jj` workflows `jjui` is my go to tool. But there are two things that it doesn't do for me:
 1. Sometimes when I'm working on multiple workspaces / branches I just need to ***see*** the graph visually and interactively
 2. I still suck at resolving conflicts; this tool provides a nice merge gui
 
-While I built this for the 2 reasons above, `jork` also supports most of the other `jj` operations and uses the same keybindings as `jjui`.
+While I built this for the 2 reasons above, `jig` also supports most of the other `jj` operations and uses the same keybindings as `jjui`.
 
 ![Commit graph with a file diff](docs/screenshots/main.png)
 
@@ -34,12 +41,12 @@ While I built this for the 2 reasons above, `jork` also supports most of the oth
 
 ## Install
 
-Download the `.dmg` from the [latest release](../../releases/latest) and drag Jork to Applications. Jork runs repository changes through your `jj`, so it needs `jj` 0.40 on your `PATH`.
+Download the `.dmg` from the [latest release](../../releases/latest) and drag Jig to Applications. Jig runs repository changes through your `jj`, so it needs `jj` 0.40 on your `PATH`.
 
-Jork isn't notarized yet, so macOS will refuse to open it the first time. Clear the quarantine flag with:
+Jig isn't notarized yet, so macOS will refuse to open it the first time. Clear the quarantine flag with:
 
 ```bash
-xattr -dr com.apple.quarantine /Applications/Jork.app
+xattr -dr com.apple.quarantine /Applications/Jig.app
 ```
 
 To build from source for other systems, see [DEVELOPMENT.md](DEVELOPMENT.md).

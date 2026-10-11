@@ -492,7 +492,7 @@ async fn jj_split(
         let program = std::env::current_exe()?;
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let plan_path = std::env::temp_dir().join(format!(
-            "jork-split-plan-{}-{}.json",
+            "jig-split-plan-{}-{}.json",
             std::process::id(),
             COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -522,7 +522,7 @@ async fn jj_resolve(
         let program = std::env::current_exe()?;
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let content_path = std::env::temp_dir().join(format!(
-            "jork-resolve-content-{}-{}",
+            "jig-resolve-content-{}-{}",
             std::process::id(),
             COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -551,7 +551,7 @@ async fn jj_resolve_side(
 #[derive(serde::Serialize)]
 struct InitialRepo {
     path: String,
-    /// Given on the command line or in `JORK_REPO`, rather than the current
+    /// Given on the command line or in `JIG_REPO`, rather than the current
     /// directory, so it wins over the last-opened repo.
     explicit: bool,
 }
@@ -563,7 +563,7 @@ fn initial_repo() -> Option<InitialRepo> {
         .skip(1)
         .find(|a| !a.starts_with('-'))
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("JORK_REPO").map(PathBuf::from));
+        .or_else(|| std::env::var_os("JIG_REPO").map(PathBuf::from));
     let (candidate, is_explicit) = match explicit {
         Some(path) => (path, true),
         None => (std::env::current_dir().ok()?, false),

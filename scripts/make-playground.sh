@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Builds a throwaway jj repo for trying Jork against. By default it lives
-# next to the Jork checkout, at ../jork-playground/repo, with a local
-# "remote" at ../jork-playground/origin.git so fetch and push work offline.
+# Builds a throwaway jj repo for trying Jig against. By default it lives
+# next to the Jig checkout, at ../jig-playground/repo, with a local
+# "remote" at ../jig-playground/origin.git so fetch and push work offline.
 # Pass a directory to put it elsewhere. Re-run it to reset everything.
 #
 #   scripts/make-playground.sh [directory]
@@ -12,15 +12,15 @@
 # change, a second workspace and uncommitted changes in @.
 set -euo pipefail
 
-ROOT="${1:-$(cd "$(dirname "$0")/../.." && pwd)/jork-playground}"
+ROOT="${1:-$(cd "$(dirname "$0")/../.." && pwd)/jig-playground}"
 # Only ever delete a directory this script made.
-if [ -e "$ROOT" ] && [ ! -e "$ROOT/.jork-playground" ]; then
+if [ -e "$ROOT" ] && [ ! -e "$ROOT/.jig-playground" ]; then
   echo "$ROOT exists and isn't a playground; refusing to delete it" >&2
   exit 1
 fi
 rm -rf "$ROOT"
 mkdir -p "$ROOT"
-touch "$ROOT/.jork-playground"
+touch "$ROOT/.jig-playground"
 cd "$ROOT"
 
 # Deterministic timestamps and change IDs, spread over the last month.
@@ -61,7 +61,7 @@ jj git remote add origin ../origin.git
 
 write README.md "# Playground
 
-A pretend project for trying out Jork."
+A pretend project for trying out Jig."
 write Cargo.toml '[package]
 name = "playground"
 version = "0.1.0"
@@ -225,4 +225,4 @@ write src/sidebar.rs "$(cat src/sidebar.rs)
 jj --quiet status >/dev/null
 
 echo "Playground ready: $ROOT/repo"
-echo "Open it in Jork with ⌘T, or: JORK_REPO=$ROOT/repo npm run tauri dev"
+echo "Open it in Jig with ⌘T, or: JIG_REPO=$ROOT/repo npm run tauri dev"

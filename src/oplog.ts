@@ -230,7 +230,7 @@ function changesHtml(op: OpEntry, changes: OpChanges): string {
   return title + (sections.length ? sections.join("") : `<div class="placeholder-text">No visible changes</div>`);
 }
 
-/** Global flags that say how jj ran, not what it did (Jork passes several). */
+/** Global flags that say how jj ran, not what it did (Jig passes several). */
 const NOISE_FLAGS = new Set(["--no-pager", "--quiet", "--ignore-working-copy", "--no-integrate-operation"]);
 const NOISE_WITH_VALUE = new Set(["--color", "-R", "--repository", "--config", "--config-file", "--at-op", "--at-operation"]);
 

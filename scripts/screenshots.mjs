@@ -10,7 +10,7 @@ import { join } from "node:path";
 const [, , outDir, scheme = "light"] = process.argv;
 const PORT = 9333;
 const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", [
-  "--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "jork-shots-"))}`, "--hide-scrollbars", "about:blank",
+  "--headless=new", `--remote-debugging-port=${PORT}`, `--user-data-dir=${mkdtempSync(join(tmpdir(), "jig-shots-"))}`, "--hide-scrollbars", "about:blank",
 ], { stdio: "ignore" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let targets;

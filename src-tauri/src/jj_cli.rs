@@ -258,7 +258,7 @@ pub fn op_args(subcommand: &str, op_id: &str) -> Result<Vec<String>> {
     Ok(strings(&["operation", subcommand, op_id]))
 }
 
-/// The `--config` values that make `program` act as the `jork-split` diff
+/// The `--config` values that make `program` act as the `jig-split` diff
 /// editor, plus the args for `jj split`.
 pub fn split_args(
     revision: &str,
@@ -272,14 +272,14 @@ pub fn split_args(
     let plan = plan.to_str().ok_or_else(|| anyhow!("non-UTF-8 plan path"))?;
     // TOML values: a JSON string / array of strings is valid TOML.
     let configs = vec![
-        format!("merge-tools.jork-split.program={}", quote(program)),
+        format!("merge-tools.jig-split.program={}", quote(program)),
         format!(
-            "merge-tools.jork-split.edit-args=[{}, {}, \"$left\", \"$right\"]",
+            "merge-tools.jig-split.edit-args=[{}, {}, \"$left\", \"$right\"]",
             quote("--split-plan"),
             quote(plan)
         ),
     ];
-    let mut args = strings(&["split", "--revision", revision, "--tool", "jork-split"]);
+    let mut args = strings(&["split", "--revision", revision, "--tool", "jig-split"]);
     if let Some(m) = message {
         args.push(format!("--message={m}"));
     }
@@ -298,7 +298,7 @@ fn root_file_fileset(path: &str) -> Result<String> {
     ))
 }
 
-/// The `--config` values that make `program` act as the `jork-resolve` merge
+/// The `--config` values that make `program` act as the `jig-resolve` merge
 /// tool (writing `content` into `$output`), plus the args for `jj resolve`.
 pub fn resolve_args(
     revision: &str,
@@ -312,20 +312,20 @@ pub fn resolve_args(
     let program = program.to_str().ok_or_else(|| anyhow!("non-UTF-8 program path"))?;
     let content = content.to_str().ok_or_else(|| anyhow!("non-UTF-8 content path"))?;
     let configs = vec![
-        format!("merge-tools.jork-resolve.program={}", quote(program)),
+        format!("merge-tools.jig-resolve.program={}", quote(program)),
         format!(
-            "merge-tools.jork-resolve.merge-args=[{}, {}, \"$output\"]",
+            "merge-tools.jig-resolve.merge-args=[{}, {}, \"$output\"]",
             quote("--resolve-output"),
             quote(content)
         ),
-        "merge-tools.jork-resolve.merge-tool-edits-conflict-markers=false".to_owned(),
+        "merge-tools.jig-resolve.merge-tool-edits-conflict-markers=false".to_owned(),
     ];
     let args = vec![
         "resolve".to_owned(),
         "--revision".to_owned(),
         revision.to_owned(),
         "--tool".to_owned(),
-        "jork-resolve".to_owned(),
+        "jig-resolve".to_owned(),
         "--".to_owned(),
         fileset,
     ];
@@ -415,7 +415,7 @@ mod tests {
 
     #[test]
     fn runs_jj_in_a_throwaway_repo() {
-        let dir = std::env::temp_dir().join(format!("jork-cli-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("jig-cli-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let init = run(&dir, &["git", "init"]);
         if let Ok(init) = init {
@@ -486,17 +486,17 @@ mod tests {
         assert!(op_args("revert", "").is_err());
         assert!(op_args("revert", &"a".repeat(129)).is_err());
         let (configs, args) =
-            split_args("a1", Some("-m"), Path::new("/x y/jork"), Path::new("/tmp/p.json")).unwrap();
+            split_args("a1", Some("-m"), Path::new("/x y/jig"), Path::new("/tmp/p.json")).unwrap();
         assert_eq!(
             configs,
             v(&[
-                r#"merge-tools.jork-split.program="/x y/jork""#,
-                r#"merge-tools.jork-split.edit-args=["--split-plan", "/tmp/p.json", "$left", "$right"]"#,
+                r#"merge-tools.jig-split.program="/x y/jig""#,
+                r#"merge-tools.jig-split.edit-args=["--split-plan", "/tmp/p.json", "$left", "$right"]"#,
             ])
         );
         assert_eq!(
             args,
-            v(&["split", "--revision", "a1", "--tool", "jork-split", "--message=-m"])
+            v(&["split", "--revision", "a1", "--tool", "jig-split", "--message=-m"])
         );
         assert!(split_args("main", None, Path::new("/j"), Path::new("/p")).is_err());
     }
@@ -504,19 +504,19 @@ mod tests {
     #[test]
     fn resolve_arg_building() {
         let (configs, args) =
-            resolve_args("a1", "dir/x \"y\".txt", Path::new("/x y/jork"), Path::new("/tmp/c")).unwrap();
+            resolve_args("a1", "dir/x \"y\".txt", Path::new("/x y/jig"), Path::new("/tmp/c")).unwrap();
         assert_eq!(
             configs,
             v(&[
-                r#"merge-tools.jork-resolve.program="/x y/jork""#,
-                r#"merge-tools.jork-resolve.merge-args=["--resolve-output", "/tmp/c", "$output"]"#,
-                "merge-tools.jork-resolve.merge-tool-edits-conflict-markers=false",
+                r#"merge-tools.jig-resolve.program="/x y/jig""#,
+                r#"merge-tools.jig-resolve.merge-args=["--resolve-output", "/tmp/c", "$output"]"#,
+                "merge-tools.jig-resolve.merge-tool-edits-conflict-markers=false",
             ])
         );
         assert_eq!(
             args,
             v(&[
-                "resolve", "--revision", "a1", "--tool", "jork-resolve", "--",
+                "resolve", "--revision", "a1", "--tool", "jig-resolve", "--",
                 r#"root-file:"dir/x \"y\".txt""#,
             ])
         );
@@ -550,7 +550,7 @@ mod tests {
 
     #[test]
     fn rebase_and_undo_in_a_throwaway_repo() {
-        let dir = std::env::temp_dir().join(format!("jork-cli-rebase-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("jig-cli-rebase-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let ok = matches!(run(&dir, &["git", "init"]), Ok(o) if o.success);
         if ok {

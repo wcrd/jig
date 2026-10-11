@@ -5,19 +5,19 @@ fn main() {
     // `jj split` runs this binary as its diff editor.
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(String::as_str) == Some("--split-plan") && args.len() >= 5 {
-        if let Err(e) = jork_lib::split_tool::run(&args[2], &args[3], &args[4]) {
-            eprintln!("jork split tool: {e:#}");
+        if let Err(e) = jig_lib::split_tool::run(&args[2], &args[3], &args[4]) {
+            eprintln!("jig split tool: {e:#}");
             std::process::exit(1);
         }
         return;
     }
     // `jj resolve` runs it as its merge tool, too.
     if args.get(1).map(String::as_str) == Some("--resolve-output") && args.len() >= 4 {
-        if let Err(e) = jork_lib::resolve_tool::run(&args[2], &args[3]) {
-            eprintln!("jork resolve tool: {e:#}");
+        if let Err(e) = jig_lib::resolve_tool::run(&args[2], &args[3]) {
+            eprintln!("jig resolve tool: {e:#}");
             std::process::exit(1);
         }
         return;
     }
-    jork_lib::run()
+    jig_lib::run()
 }

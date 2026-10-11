@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -58 218 206" width="218" height="206" role="img" aria-label="jig">
+  <g fill="none" stroke="#f2f2f4" stroke-width="22" stroke-linecap="round">
+    <path d="M30 0 V98 Q30 130 -2 130"/>
+    <path d="M78 0 V80"/>
+    <circle cx="150" cy="40" r="29"/>
+    <path d="M179 0 V100 Q179 130 149 130 H136"/>
+  </g>
+  <circle cx="30" cy="-38" r="13" fill="#f2a93b"/>
+  <circle cx="78" cy="-38" r="13" fill="#3d9cf0"/>
+</svg>

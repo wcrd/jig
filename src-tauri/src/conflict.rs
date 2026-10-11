@@ -161,7 +161,7 @@ mod tests {
     fn hunks_and_resolve_in_a_throwaway_repo() {
         use crate::jj_cli;
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("jork-conflict-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("jig-conflict-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         if !matches!(jj_cli::run(&dir, &["git", "init"]), Ok(o) if o.success) {
@@ -205,8 +205,8 @@ mod tests {
         let missing = pollster::block_on(conflict_hunks(&open.repo, &merge, "nope.txt")).unwrap();
         assert!(!missing.supported && missing.hunks.is_empty());
 
-        // A tiny script stands in for the jork binary in `--resolve-output` mode.
-        let script = dir.join("fake-jork.sh");
+        // A tiny script stands in for the jig binary in `--resolve-output` mode.
+        let script = dir.join("fake-jig.sh");
         std::fs::write(&script, "#!/bin/sh\ncp \"$2\" \"$3\"\n").unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         let content = dir.join("content.tmp");
