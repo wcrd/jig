@@ -14,7 +14,7 @@ import {
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
 import { highlightCached, languageFor, type Segment } from "./highlight";
-import { avatarHue, escapeHtml, formatFullDate, initials } from "./format";
+import { avatarHue, escapeHtml, formatFullDate, initials, reflowMessage } from "./format";
 import type { CommitDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
 export type DetailsTab = "commit" | "changes" | "tree";
@@ -485,7 +485,7 @@ export class DetailsPanel {
     let html = summary
       ? `<div class="ci-summary">${escapeHtml(summary)}</div>`
       : `<div class="ci-summary placeholder">(no description set)</div>`;
-    if (body) html += `<div class="ci-body">${escapeHtml(body)}</div>`;
+    if (body) html += `<div class="ci-body">${escapeHtml(reflowMessage(body))}</div>`;
 
     html += `<div class="ci-person">
       <span class="avatar large" style="--hue:${avatarHue(author.email || author.name)}">${escapeHtml(initials(author.name))}</span>

@@ -42,3 +42,27 @@ export function splitConventional(summary: string): [string, string] {
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 }
+
+/**
+ * Joins hard-wrapped lines of a commit message into paragraphs so it can use
+ * the available width. Blank lines, list items, indented (code) lines and
+ * trailers like "Co-Authored-By:" keep their own lines.
+ */
+export function reflowMessage(text: string): string {
+  const keepsLine = (line: string) =>
+    line.trim() === "" ||
+    /^\s/.test(line) ||
+    /^([-*+]|\d+[.)])\s/.test(line) ||
+    /^[A-Za-z][\w-]*: \S/.test(line) ||
+    line.startsWith("```");
+  const out: string[] = [];
+  for (const line of text.split("\n")) {
+    const previous = out[out.length - 1];
+    if (previous !== undefined && previous.trim() !== "" && !keepsLine(line) && !/^\s/.test(previous) && !previous.startsWith("```")) {
+      out[out.length - 1] = `${previous} ${line.trim()}`;
+    } else {
+      out.push(line);
+    }
+  }
+  return out.join("\n");
+}
