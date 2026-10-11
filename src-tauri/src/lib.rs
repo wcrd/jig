@@ -34,18 +34,31 @@ async fn head_op_id(path: String) -> Result<String, String> {
     .map_err(|e| e.to_string())?
 }
 
-/// The repo to open at startup: the first CLI argument, else the current
-/// directory if it's inside a jj repo.
+#[derive(serde::Serialize)]
+struct InitialRepo {
+    path: String,
+    /// Given on the command line or in `JORK_REPO`, rather than the current
+    /// directory, so it wins over the last-opened repo.
+    explicit: bool,
+}
+
+/// The repo to open at startup, if any.
 #[tauri::command]
-fn initial_repo() -> Option<String> {
-    let candidate = std::env::args()
+fn initial_repo() -> Option<InitialRepo> {
+    let explicit = std::env::args()
         .skip(1)
         .find(|a| !a.starts_with('-'))
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("JORK_REPO").map(PathBuf::from))
-        .or_else(|| std::env::current_dir().ok())?;
+        .or_else(|| std::env::var_os("JORK_REPO").map(PathBuf::from));
+    let (candidate, is_explicit) = match explicit {
+        Some(path) => (path, true),
+        None => (std::env::current_dir().ok()?, false),
+    };
     let candidate = std::fs::canonicalize(candidate).ok()?;
-    repo::find_workspace_root(&candidate).map(|p| p.display().to_string())
+    repo::find_workspace_root(&candidate).map(|p| InitialRepo {
+        path: p.display().to_string(),
+        explicit: is_explicit,
+    })
 }
 
 pub fn run() {

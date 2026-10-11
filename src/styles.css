@@ -1,0 +1,426 @@
+:root {
+  color-scheme: light dark;
+  --bg: #ffffff;
+  --toolbar-bg: #f6f6f6;
+  --border: #e2e2e2;
+  --text: #1d1d1f;
+  --muted: #8e8e93;
+  --dim: #9a9aa0;
+  --hover: #f4f4f6;
+  --selected: #dedee2;
+  --input-bg: #ffffff;
+  --conflict: #e0443e;
+  --change-id: #c026d3;
+  --commit-id: #2f80ed;
+  --tag: #8a8fb8;
+  --error-bg: #fdecea;
+
+  /* Lane colours by column. */
+  --lane-0: #f5a623;
+  --lane-1: #edc100;
+  --lane-2: #e8453c;
+  --lane-3: #a68a64;
+  --lane-4: #5dbb3f;
+  --lane-5: #2e95e8;
+  --lane-6: #b455d9;
+  --lane-7: #e0528f;
+  --lane-8: #17a89e;
+  --lane-9: #7a7fe0;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1e1e;
+    --toolbar-bg: #282828;
+    --border: #383838;
+    --text: #e8e8ea;
+    --muted: #8e8e93;
+    --dim: #77777c;
+    --hover: #262628;
+    --selected: #3a3a3e;
+    --input-bg: #1a1a1a;
+    --change-id: #e879f9;
+    --commit-id: #60a5fa;
+    --tag: #9ea3cc;
+    --error-bg: #3a1f1d;
+
+    --lane-0: #f7ad35;
+    --lane-1: #f2cd2a;
+    --lane-2: #f05a51;
+    --lane-3: #b89b74;
+    --lane-4: #6fcf4f;
+    --lane-5: #45a5f0;
+    --lane-6: #c46ce6;
+    --lane-7: #ec68a0;
+    --lane-8: #2bbcb1;
+    --lane-9: #8d92ec;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.2 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* Toolbar */
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.repo-button {
+  font-weight: 600;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 3px 8px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.repo-button:hover,
+.icon-button:hover {
+  background: var(--hover);
+  border-color: var(--border);
+}
+
+.revset {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  max-width: 720px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--input-bg);
+  overflow: hidden;
+}
+
+.revset:focus-within {
+  border-color: var(--commit-id);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--commit-id) 25%, transparent);
+}
+
+.revset select {
+  border: none;
+  border-right: 1px solid var(--border);
+  background: var(--toolbar-bg);
+  padding: 3px 6px;
+  outline: none;
+}
+
+.revset input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 4px 8px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--muted);
+}
+
+.status {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.error {
+  padding: 6px 12px;
+  background: var(--error-bg);
+  color: var(--conflict);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  border-bottom: 1px solid var(--border);
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* Commit list */
+
+.list {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.scroller {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.spacer {
+  position: relative;
+}
+
+.graph {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.empty button {
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--toolbar-bg);
+}
+
+.row {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 25px;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.row.selected {
+  background: var(--selected);
+}
+
+.row > div {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.desc {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  padding-right: 12px;
+}
+
+.summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.summary b {
+  font-weight: 650;
+}
+
+.row.wc .summary {
+  font-weight: 600;
+}
+
+.row.dim .summary {
+  color: var(--dim);
+}
+
+.placeholder {
+  color: var(--muted);
+  font-style: italic;
+  font-weight: normal;
+}
+
+.empty-tag {
+  color: var(--lane-4);
+  font-weight: normal;
+}
+
+.more {
+  color: var(--muted);
+  margin-left: 5px;
+  font-size: 11px;
+  flex: none;
+}
+
+/* Ref pills: lane-coloured border with a tinted fill. */
+
+.pill {
+  --pill: var(--muted);
+  flex: none;
+  display: inline-flex;
+  align-items: stretch;
+  height: 18px;
+  margin-right: 5px;
+  border: 1px solid var(--pill);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--pill) 16%, var(--bg));
+  color: var(--text);
+  font-size: 12px;
+  overflow: hidden;
+}
+
+.pill .label {
+  display: flex;
+  align-items: center;
+  padding: 0 5px;
+}
+
+.pill .tile {
+  display: grid;
+  place-items: center;
+  width: 19px;
+  border-right: 1px solid var(--pill);
+  background: var(--bg);
+  color: color-mix(in srgb, var(--pill) 70%, var(--text));
+}
+
+.pill .unsynced {
+  color: var(--muted);
+  margin-left: 1px;
+}
+
+.pill.remote {
+  background: color-mix(in srgb, var(--pill) 8%, var(--bg));
+}
+
+.pill.remote.untracked .label {
+  color: var(--muted);
+}
+
+.pill.tag {
+  --pill: var(--tag);
+  background: color-mix(in srgb, var(--pill) 10%, var(--bg));
+}
+
+.pill.workspace {
+  font-weight: 600;
+}
+
+.pill.workspace.current {
+  background: var(--pill);
+  color: var(--bg);
+}
+
+.pill.conflict,
+.pill.flag.conflict {
+  --pill: var(--conflict);
+}
+
+.pill.flag.divergent {
+  --pill: var(--lane-6);
+}
+
+/* Right-hand columns */
+
+.author {
+  flex: none;
+  width: 170px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+}
+
+.author .name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  background: hsl(var(--hue) 55% 62%);
+  color: #fff;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+}
+
+.change,
+.commit {
+  flex: none;
+  width: 82px;
+}
+
+.id {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.id b {
+  font-weight: 600;
+}
+
+.change-id b {
+  color: var(--change-id);
+}
+
+.commit-id b {
+  color: var(--commit-id);
+}
+
+.date {
+  flex: none;
+  width: 185px;
+  padding-right: 12px;
+}

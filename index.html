@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Jork</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <header class="toolbar">
+      <button id="open-repo" class="repo-button" title="Open repository (⌘O)">
+        <span id="repo-name">Open…</span>
+      </button>
+      <div class="revset">
+        <select id="revset-preset" title="Revset presets">
+          <option value="">Default</option>
+          <option value="all()">All</option>
+          <option value="trunk() | bookmarks() | remote_bookmarks() | tags() | @ | ::@ ~ ::trunk()">Bookmarks</option>
+          <option value="mine()">Mine</option>
+          <option value="custom" hidden>Custom</option>
+        </select>
+        <input id="revset-input" spellcheck="false" autocomplete="off" placeholder="revset" title="Revset (⌘L)" />
+      </div>
+      <button id="refresh" class="icon-button" title="Reload (⌘R)">
+        <svg viewBox="0 0 16 16" width="14" height="14"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5v3h-3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="status" class="status"></div>
+    </header>
+    <div id="error" class="error" hidden></div>
+    <main id="list" class="list">
+      <div id="scroller" class="scroller">
+        <div id="spacer" class="spacer"></div>
+      </div>
+      <canvas id="graph" class="graph"></canvas>
+      <div id="empty" class="empty" hidden>
+        <p>Open a jj repository to see its graph.</p>
+        <button id="empty-open">Open Repository…</button>
+      </div>
+    </main>
+  </body>
+</html>

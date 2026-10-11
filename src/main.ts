@@ -1,0 +1,269 @@
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+
+import { ROW_HEIGHT, drawGraph, readPalette, type Palette } from "./graph";
+import { renderRow } from "./rows";
+import type { LogResponse } from "./types";
+
+const isTauri = "__TAURI_INTERNALS__" in window;
+const OVERSCAN = 8;
+const POLL_MS = 2500;
+
+const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+const list = $<HTMLElement>("list");
+const scroller = $<HTMLDivElement>("scroller");
+const spacer = $<HTMLDivElement>("spacer");
+const canvas = $<HTMLCanvasElement>("graph");
+const repoName = $<HTMLSpanElement>("repo-name");
+const revsetInput = $<HTMLInputElement>("revset-input");
+const revsetPreset = $<HTMLSelectElement>("revset-preset");
+const statusEl = $<HTMLDivElement>("status");
+const errorEl = $<HTMLDivElement>("error");
+const emptyEl = $<HTMLDivElement>("empty");
+
+let repoPath: string | null = null;
+/** The revset the user asked for; empty means the configured default. */
+let revset = "";
+let log: LogResponse | null = null;
+let selected = -1;
+let palette: Palette = readPalette();
+const rendered = new Map<number, HTMLElement>();
+let loading = false;
+
+function storage(key: string, value?: string | null): string | null {
+  try {
+    if (value === undefined) return localStorage.getItem(key);
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch {
+    // Storage is a convenience only.
+  }
+  return null;
+}
+
+async function fetchLog(path: string, revset: string): Promise<LogResponse> {
+  if (isTauri) {
+    return invoke<LogResponse>("load_log", { path, revset: revset || null });
+  }
+  // Browser preview: serve a dump from `cargo run --example dump -- --json`.
+  const response = await fetch(`/fixture.json`);
+  if (!response.ok) throw new Error("No fixture.json for the browser preview");
+  return response.json();
+}
+
+async function load({ keepPosition = false } = {}) {
+  if (!repoPath || loading) return;
+  loading = true;
+  const previousChange = log && selected >= 0 ? log.rows[selected]?.changeId : null;
+  const previousScroll = scroller.scrollTop;
+  statusEl.textContent = "Loading…";
+  try {
+    const next = await fetchLog(repoPath, revset);
+    errorEl.hidden = true;
+    log = next;
+    repoName.textContent = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
+    document.title = `${repoName.textContent} — Jork`;
+    revsetInput.placeholder = next.defaultRevset;
+    if (!revset) revsetInput.value = "";
+    selected = previousChange ? next.rows.findIndex((r) => r.changeId === previousChange) : -1;
+    if (selected < 0 && !keepPosition) selected = next.rows.findIndex((r) => r.isWorkingCopy);
+    spacer.style.height = `${next.rows.length * ROW_HEIGHT}px`;
+    for (const el of rendered.values()) el.remove();
+    rendered.clear();
+    if (keepPosition) scroller.scrollTop = previousScroll;
+    else scroller.scrollTop = 0;
+    updateStatus();
+    render();
+  } catch (err) {
+    errorEl.textContent = String(err);
+    errorEl.hidden = false;
+    statusEl.textContent = "";
+  } finally {
+    loading = false;
+  }
+}
+
+function updateStatus() {
+  if (!log) return;
+  const count = `${log.rows.length.toLocaleString()} ${log.rows.length === 1 ? "commit" : "commits"}`;
+  statusEl.textContent = `${count}${log.truncated ? " (truncated)" : ""} · ${log.elapsedMs} ms`;
+  statusEl.title = `Operation ${log.opId}: ${log.opDescription}`;
+}
+
+let frame = 0;
+function render() {
+  cancelAnimationFrame(frame);
+  frame = requestAnimationFrame(renderNow);
+}
+
+function renderNow() {
+  emptyEl.hidden = !!repoPath;
+  if (!log) {
+    canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+    return;
+  }
+  const top = scroller.scrollTop;
+  const height = scroller.clientHeight;
+  const first = Math.max(0, Math.floor(top / ROW_HEIGHT) - OVERSCAN);
+  const last = Math.min(log.rows.length - 1, Math.ceil((top + height) / ROW_HEIGHT) + OVERSCAN);
+
+  for (const [index, el] of rendered) {
+    if (index < first || index > last) {
+      el.remove();
+      rendered.delete(index);
+    }
+  }
+  for (let i = first; i <= last; i++) {
+    let el = rendered.get(i);
+    if (!el) {
+      el = document.createElement("div");
+      el.className = "row";
+      el.dataset.index = String(i);
+      renderRow(el, log.rows[i], i, palette);
+      spacer.appendChild(el);
+      rendered.set(i, el);
+    }
+    el.classList.toggle("selected", i === selected);
+  }
+
+  drawGraph(canvas, log.rows, log.edges, palette, {
+    scrollTop: top,
+    width: scroller.clientWidth,
+    height,
+  });
+}
+
+function select(index: number, reveal = true) {
+  if (!log || log.rows.length === 0) return;
+  selected = Math.max(0, Math.min(log.rows.length - 1, index));
+  if (reveal) {
+    const y = selected * ROW_HEIGHT;
+    if (y < scroller.scrollTop) scroller.scrollTop = y;
+    else if (y + ROW_HEIGHT > scroller.scrollTop + scroller.clientHeight) {
+      scroller.scrollTop = y + ROW_HEIGHT - scroller.clientHeight;
+    }
+  }
+  render();
+}
+
+async function openRepo(path: string) {
+  repoPath = path;
+  storage("lastRepo", path);
+  revset = storage(`revset:${path}`) ?? "";
+  revsetInput.value = revset;
+  syncPreset();
+  log = null;
+  await load();
+}
+
+async function chooseRepo() {
+  if (!isTauri) return;
+  const picked = await open({ directory: true, title: "Open jj repository" });
+  if (typeof picked === "string") await openRepo(picked);
+}
+
+function syncPreset() {
+  const match = [...revsetPreset.options].find((o) => o.value === revset && o.value !== "custom");
+  revsetPreset.value = match ? match.value : "custom";
+}
+
+function applyRevset(value: string) {
+  revset = value.trim();
+  if (repoPath) storage(`revset:${repoPath}`, revset || null);
+  revsetInput.value = revset;
+  syncPreset();
+  load();
+}
+
+// Picks up changes made with jj elsewhere (e.g. in a terminal).
+async function pollForChanges() {
+  if (!isTauri || !repoPath || !log || loading || document.hidden) return;
+  try {
+    const opId = await invoke<string>("head_op_id", { path: repoPath });
+    if (log && opId !== log.opId) await load({ keepPosition: true });
+  } catch {
+    // Errors surface on the next explicit load.
+  }
+}
+
+scroller.addEventListener("scroll", render, { passive: true });
+new ResizeObserver(render).observe(list);
+window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
+  palette = readPalette();
+  for (const el of rendered.values()) el.remove();
+  rendered.clear();
+  render();
+});
+
+spacer.addEventListener("mousedown", (event) => {
+  const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
+  if (row) select(Number(row.dataset.index), false);
+});
+
+$("open-repo").addEventListener("click", chooseRepo);
+$("empty-open").addEventListener("click", chooseRepo);
+$("refresh").addEventListener("click", () => load({ keepPosition: true }));
+revsetPreset.addEventListener("change", () => {
+  if (revsetPreset.value !== "custom") applyRevset(revsetPreset.value);
+});
+revsetInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    applyRevset(revsetInput.value);
+    revsetInput.blur();
+  } else if (event.key === "Escape") {
+    revsetInput.value = revset;
+    revsetInput.blur();
+  }
+});
+
+window.addEventListener("keydown", (event) => {
+  const mod = event.metaKey || event.ctrlKey;
+  if (mod && event.key === "r") {
+    event.preventDefault();
+    load({ keepPosition: true });
+    return;
+  }
+  if (mod && event.key === "o") {
+    event.preventDefault();
+    chooseRepo();
+    return;
+  }
+  if (mod && event.key === "l") {
+    event.preventDefault();
+    revsetInput.focus();
+    revsetInput.select();
+    return;
+  }
+  if (document.activeElement === revsetInput || !log) return;
+  const page = Math.max(1, Math.floor(scroller.clientHeight / ROW_HEIGHT) - 1);
+  const moves: Record<string, number> = {
+    ArrowDown: selected + 1,
+    ArrowUp: selected - 1,
+    PageDown: selected + page,
+    PageUp: selected - page,
+    Home: 0,
+    End: log.rows.length - 1,
+  };
+  if (event.key in moves) {
+    event.preventDefault();
+    select(moves[event.key]);
+  }
+});
+
+window.addEventListener("focus", pollForChanges);
+setInterval(pollForChanges, POLL_MS);
+
+async function start() {
+  if (!isTauri) {
+    repoPath = "preview";
+    await load();
+    return;
+  }
+  const initial = await invoke<{ path: string; explicit: boolean } | null>("initial_repo");
+  const last = storage("lastRepo");
+  const path = initial?.explicit ? initial.path : (last ?? initial?.path ?? null);
+  if (path) await openRepo(path);
+  else render();
+}
+
+start();

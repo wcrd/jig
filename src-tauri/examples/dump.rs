@@ -1,10 +1,19 @@
 //! Prints a text rendering of the log, for checking the backend without the UI.
-//! Usage: cargo run --example dump -- <repo path> [revset] [limit]
+//! Usage: cargo run --example dump -- [--json] <repo path> [revset] [limit]
+//!
+//! With `--json`, prints the frontend's payload instead; save it as
+//! `public/fixture.json` to preview the UI in a plain browser.
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let json = args.iter().any(|a| a == "--json");
+    args.retain(|a| a != "--json");
     let path = std::path::PathBuf::from(args.get(1).expect("repo path"));
     let limit = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(40);
     let log = jork_lib::repo::load_log(&path, args.get(2).map(String::as_str), limit).unwrap();
+    if json {
+        println!("{}", serde_json::to_string(&log).unwrap());
+        return;
+    }
     println!(
         "{} rows, {} edges, max width {}, truncated {}, {} ms, revset {:?}",
         log.rows.len(), log.edges.len(), log.max_width, log.truncated, log.elapsed_ms, log.revset
