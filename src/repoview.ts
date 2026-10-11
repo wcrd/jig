@@ -399,6 +399,11 @@ export class RepoView {
       return event.key === "Escape" || event.key.length === 1;
     }
     if (this.pending) return this.handlePendingKey(event);
+    // Esc closes the find bar even after focus has left it.
+    if (event.key === "Escape" && this.searchBar.isOpen) {
+      this.searchBar.close();
+      return true;
+    }
     if (this.handleCommandKey(event)) return true;
     // ⌥↑/⌥↓ step through the selected commit's files, as plain ↑/↓ do at full size; j / k still move commits.
     if ((event.altKey || this.fullDiff) && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
