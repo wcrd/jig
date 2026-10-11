@@ -10,6 +10,7 @@ import {
   fileLines,
 
   newExpansion,
+  type SplitTicks,
   splitLines,
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
@@ -24,8 +25,20 @@ export type DetailsTab = "commit" | "changes" | "tree";
 
 /** Which changes go into the first commit of a split, as sent to `jj_split`. */
 export interface SplitPlan {
-  files: Record<string, { all: boolean; hunks: number[] }>;
+  files: Record<string, { all: boolean; hunks: number[]; lines: Record<number, number[]> }>;
 }
+
+/** Indices of a hunk's added and removed lines. */
+function changedLines(file: FileDiff, hunk: number): number[] {
+  const out: number[] = [];
+  file.hunks[hunk]?.lines.forEach((line, i) => {
+    if (line.kind !== " ") out.push(i);
+  });
+  return out;
+}
+
+/** Ticked lines by hunk: a hunk with all its changed lines is wholly ticked. */
+type SplitLines = Map<number, Set<number>>;
 type ChangesView = "list" | "tree";
 
 const STATUS_LETTER: Record<FileStatus, string> = {
@@ -106,9 +119,11 @@ export class DetailsPanel {
 
   /**
    * In split mode, what's ticked for the first commit, by path: every change
-   * in the file, or some of its hunks. Unlisted files stay in the second.
+   * in the file, or some of its lines. Unlisted files stay in the second.
    */
-  private split: Map<string, "all" | Set<number>> | null = null;
+  private split: Map<string, "all" | SplitLines> | null = null;
+  /** The last line ticked or unticked, for shift-click ranges. */
+  private splitAnchor: { path: string; hunk: number; line: number; on: boolean } | null = null;
 
   /** Draws only the visible lines of large diffs and files. */
   private virtual: VirtualLines;
@@ -180,10 +195,18 @@ export class DetailsPanel {
       if (parent) source.selectChange(parent.dataset.change!);
     });
     el.view.addEventListener("mousedown", (event) => {
-      const check = (event.target as HTMLElement).closest<HTMLElement>("[data-hunk-check]");
+      const target = event.target as HTMLElement;
+      const check = target.closest<HTMLElement>("[data-hunk-check]");
       if (check) {
         event.preventDefault();
         this.toggleSplitHunk(Number(check.dataset.hunkCheck));
+        return;
+      }
+      const lineCheck = target.closest<HTMLElement>("[data-line-check]");
+      if (lineCheck) {
+        event.preventDefault();
+        const [hunk, line] = lineCheck.dataset.lineCheck!.split(":").map(Number);
+        this.toggleSplitLine(hunk, line, event.shiftKey);
       }
     });
     el.view.addEventListener("click", (event) => {
@@ -235,6 +258,8 @@ export class DetailsPanel {
     this.conflictPath = diff.files.length === 0 && diff.conflicts.length > 0 ? diff.conflicts[0] : null;
     this.renderLeft();
     this.renderRight();
+    // The split bar's counts depend on the diff, which may arrive after it.
+    if (this.split) this.source.splitChanged();
   }
 
   showPendingCompare(from: LogRow, to: LogRow) {
@@ -315,6 +340,7 @@ export class DetailsPanel {
 
   startSplit() {
     this.split = new Map();
+    this.splitAnchor = null;
     if (this.tab !== "changes") this.setTab("changes");
     else {
       this.renderLeft();
@@ -329,15 +355,16 @@ export class DetailsPanel {
     this.renderRight();
   }
 
-  /** Counts of hunks ticked and in total (a file without hunks counts as one). */
+  /** Changed lines ticked and in total (a file without hunks counts as one). */
   splitCounts(): { selected: number; total: number } {
     let selected = 0;
     let total = 0;
     for (const file of this.diff?.files ?? []) {
-      const size = Math.max(1, file.hunks.length);
+      const size = Math.max(1, file.hunks.reduce((n, _, g) => n + changedLines(file, g).length, 0));
       total += size;
       const state = this.split?.get(file.path);
-      selected += state === "all" ? size : (state?.size ?? 0);
+      if (state === "all") selected += size;
+      else for (const lines of state?.values() ?? []) selected += lines.size;
     }
     return { selected, total };
   }
@@ -347,10 +374,19 @@ export class DetailsPanel {
     for (const file of this.diff?.files ?? []) {
       const state = this.split?.get(file.path);
       if (!state) continue;
-      const all = state === "all" || state.size === file.hunks.length;
-      files[file.path] = { all, hunks: all ? [] : [...state].sort((a, b) => a - b) };
-      // A rename's source disappears along with it.
-      if (all && file.sourcePath && file.status === "renamed") files[file.sourcePath] = { all: true, hunks: [] };
+      if (state === "all") {
+        files[file.path] = { all: true, hunks: [], lines: {} };
+        // A rename's source disappears along with it.
+        if (file.sourcePath && file.status === "renamed") files[file.sourcePath] = { all: true, hunks: [], lines: {} };
+        continue;
+      }
+      const hunks: number[] = [];
+      const lines: Record<number, number[]> = {};
+      for (const [g, ticked] of [...state].sort(([a], [b]) => a - b)) {
+        if (ticked.size === changedLines(file, g).length) hunks.push(g);
+        else lines[g] = [...ticked].sort((a, b) => a - b);
+      }
+      files[file.path] = { all: false, hunks, lines };
     }
     return { files };
   }
@@ -358,8 +394,31 @@ export class DetailsPanel {
   private fileSplitState(file: FileDiff): "none" | "some" | "all" {
     const state = this.split?.get(file.path);
     if (!state) return "none";
-    if (state === "all" || state.size === file.hunks.length) return "all";
-    return "some";
+    return state === "all" ? "all" : "some";
+  }
+
+  private hunkSplitState(file: FileDiff, hunk: number): "none" | "some" | "all" {
+    const state = this.split?.get(file.path);
+    if (!state) return "none";
+    if (state === "all") return "all";
+    const ticked = state.get(hunk)?.size ?? 0;
+    return ticked === 0 ? "none" : ticked === changedLines(file, hunk).length ? "all" : "some";
+  }
+
+  /** Ticked lines of a file as a mutable map, expanding "all". */
+  private splitLinesOf(file: FileDiff): SplitLines {
+    const state = this.split?.get(file.path);
+    if (state === "all") return new Map(file.hunks.map((_, g) => [g, new Set(changedLines(file, g))]));
+    return new Map([...(state ?? [])].map(([g, lines]) => [g, new Set(lines)]));
+  }
+
+  /** Stores a file's ticked lines, collapsing to "all" or nothing. */
+  private setSplitLines(file: FileDiff, lines: SplitLines) {
+    for (const [g, set] of lines) if (set.size === 0) lines.delete(g);
+    const all = file.hunks.length > 0 && file.hunks.every((_, g) => lines.get(g)?.size === changedLines(file, g).length);
+    if (all) this.split!.set(file.path, "all");
+    else if (lines.size === 0) this.split!.delete(file.path);
+    else this.split!.set(file.path, lines);
   }
 
   private toggleSplitFile(index: number) {
@@ -373,13 +432,44 @@ export class DetailsPanel {
   private toggleSplitHunk(hunk: number) {
     const file = this.diff?.files[this.fileIndex];
     if (!file || !this.split) return;
-    let state = this.split.get(file.path);
-    const set = state === "all" ? new Set(file.hunks.map((_, i) => i)) : new Set(state ?? []);
-    if (set.has(hunk)) set.delete(hunk);
-    else set.add(hunk);
-    state = set.size === 0 ? undefined : set.size === file.hunks.length ? "all" : set;
-    if (state) this.split.set(file.path, state);
-    else this.split.delete(file.path);
+    const lines = this.splitLinesOf(file);
+    if (this.hunkSplitState(file, hunk) === "all") lines.delete(hunk);
+    else lines.set(hunk, new Set(changedLines(file, hunk)));
+    this.setSplitLines(file, lines);
+    this.splitAnchor = null;
+    this.splitUpdated();
+  }
+
+  /**
+   * Ticks or unticks one changed line; with shift, every changed line from
+   * the last one clicked in this file gets the same state.
+   */
+  private toggleSplitLine(hunk: number, line: number, range: boolean) {
+    const file = this.diff?.files[this.fileIndex];
+    if (!file || !this.split) return;
+    const lines = this.splitLinesOf(file);
+    const anchor = this.splitAnchor?.path === file.path ? this.splitAnchor : null;
+    if (range && anchor) {
+      const [from, to] = [[anchor.hunk, anchor.line], [hunk, line]].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      for (let g = from[0]; g <= to[0]; g++) {
+        const set = lines.get(g) ?? new Set<number>();
+        for (const i of changedLines(file, g)) {
+          if ((g === from[0] && i < from[1]) || (g === to[0] && i > to[1])) continue;
+          if (anchor.on) set.add(i);
+          else set.delete(i);
+        }
+        lines.set(g, set);
+      }
+      this.splitAnchor = { ...anchor, hunk, line };
+    } else {
+      const set = lines.get(hunk) ?? new Set<number>();
+      const on = !set.has(line);
+      if (on) set.add(line);
+      else set.delete(line);
+      lines.set(hunk, set);
+      this.splitAnchor = { path: file.path, hunk, line, on };
+    }
+    this.setSplitLines(file, lines);
     this.splitUpdated();
   }
 
@@ -672,9 +762,13 @@ export class DetailsPanel {
       (file.conflict ? `<span class="pill flag conflict"><span class="label">conflict</span></span>` : "") +
       `<span class="header-buttons">${fullButton}</span></div>` +
       `<div class="diff-body"></div>`;
-    const split = this.split;
-    const state = split?.get(file.path);
-    const ticked = split ? (hunk: number) => state === "all" || !!state?.has(hunk) : null;
+    const state = this.split?.get(file.path);
+    const ticked: SplitTicks | null = this.split
+      ? {
+          hunk: (g) => this.hunkSplitState(file, g),
+          line: (g, i) => state === "all" || !!state?.get(g)?.has(i),
+        }
+      : null;
     this.showLines(diffLines(file, expansion, lines, language, highlight, ticked));
     this.el.view.scrollTop = resetScroll ? 0 : scrollTop;
     this.el.view.scrollLeft = resetScroll ? 0 : scrollLeft;

@@ -1916,8 +1916,20 @@ dialog.prompt textarea:focus {
   margin-right: 8px;
 }
 
-.line.unselected {
+.line .no .line-check {
+  float: left;
+  width: 12px;
+  height: 12px;
+  margin: 2px 0 0 4px;
+}
+
+/* Dim the text but not the checkbox, so unticked lines stay clickable. */
+.line.unselected .code {
   opacity: 0.4;
+}
+
+.line.unselected .no {
+  color: color-mix(in srgb, var(--gutter) 50%, transparent);
 }
 
 .modebar.split {

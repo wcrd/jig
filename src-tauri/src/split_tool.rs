@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use bstr::ByteSlice;
 use jj_lib::diff_presentation::LineCompareMode;
-use jj_lib::diff_presentation::unified::unified_diff_hunks;
+use jj_lib::diff_presentation::unified::{DiffLineType, unified_diff_hunks};
 use jj_lib::merge::Diff;
 use serde::{Deserialize, Serialize};
 
@@ -30,6 +30,36 @@ pub struct FileSelection {
     /// Otherwise, just these hunks (indices as the diff view numbers them).
     #[serde(default)]
     pub hunks: Vec<usize>,
+    /// And parts of these hunks: hunk index to the indices, within the hunk's
+    /// lines, of the added and removed lines to take.
+    #[serde(default)]
+    pub lines: HashMap<usize, Vec<usize>>,
+}
+
+/// What to take from each hunk of a file's change.
+#[derive(Default, Debug, Clone)]
+pub struct Selection {
+    pub hunks: HashSet<usize>,
+    pub lines: HashMap<usize, HashSet<usize>>,
+}
+
+impl Selection {
+    fn is_empty(&self) -> bool {
+        self.hunks.is_empty() && self.lines.values().all(HashSet::is_empty)
+    }
+}
+
+impl From<&FileSelection> for Selection {
+    fn from(s: &FileSelection) -> Self {
+        Selection {
+            hunks: s.hunks.iter().copied().collect(),
+            lines: s
+                .lines
+                .iter()
+                .map(|(h, lines)| (*h, lines.iter().copied().collect()))
+                .collect(),
+        }
+    }
 }
 
 /// Binary files only support whole-file selection.
@@ -37,8 +67,10 @@ fn is_binary(bytes: &[u8]) -> bool {
     bytes[..bytes.len().min(8192)].contains(&0)
 }
 
-/// `left` with only the `selected` hunks of the change to `right` applied.
-pub fn apply_hunks(left: &[u8], right: &[u8], selected: &HashSet<usize>) -> Vec<u8> {
+/// `left` with only the `selected` hunks and lines of the change to `right`
+/// applied. An unselected removed line stays; an unselected added line is
+/// left out.
+pub fn apply_hunks(left: &[u8], right: &[u8], selected: &Selection) -> Vec<u8> {
     let left_lines: Vec<&[u8]> = left.split_inclusive(|b| *b == b'\n').collect();
     let right_lines: Vec<&[u8]> = right.split_inclusive(|b| *b == b'\n').collect();
     let hunks = unified_diff_hunks(
@@ -53,13 +85,38 @@ pub fn apply_hunks(left: &[u8], right: &[u8], selected: &HashSet<usize>) -> Vec<
         for line in &left_lines[pos..l.start] {
             out.extend_from_slice(line);
         }
-        let lines = if selected.contains(&i) {
-            &right_lines[hunk.right_line_range.clone()]
+        if selected.hunks.contains(&i) {
+            for line in &right_lines[hunk.right_line_range.clone()] {
+                out.extend_from_slice(line);
+            }
+        } else if let Some(picked) = selected.lines.get(&i) {
+            let mut li = l.start;
+            let mut ri = hunk.right_line_range.start;
+            for (j, (kind, _)) in hunk.lines.iter().enumerate() {
+                match kind {
+                    DiffLineType::Context => {
+                        out.extend_from_slice(left_lines[li]);
+                        li += 1;
+                        ri += 1;
+                    }
+                    DiffLineType::Removed => {
+                        if !picked.contains(&j) {
+                            out.extend_from_slice(left_lines[li]);
+                        }
+                        li += 1;
+                    }
+                    DiffLineType::Added => {
+                        if picked.contains(&j) {
+                            out.extend_from_slice(right_lines[ri]);
+                        }
+                        ri += 1;
+                    }
+                }
+            }
         } else {
-            &left_lines[l.clone()]
-        };
-        for line in lines {
-            out.extend_from_slice(line);
+            for line in &left_lines[l.clone()] {
+                out.extend_from_slice(line);
+            }
         }
         pos = l.end;
     }
@@ -177,9 +234,7 @@ pub fn apply_plan(plan: &SplitPlan, left: &Path, right: &Path) -> Result<()> {
         if selection.is_some_and(|s| s.all) {
             continue;
         }
-        let selected: HashSet<usize> = selection
-            .map(|s| s.hunks.iter().copied().collect())
-            .unwrap_or_default();
+        let selected: Selection = selection.map(Selection::from).unwrap_or_default();
         // Partial selection needs text on both sides (or absent).
         let text_side = |e: &Entry| match e {
             Entry::Absent => true,
@@ -229,8 +284,18 @@ pub fn run(plan: &str, left: &str, right: &str) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn sel(ids: &[usize]) -> HashSet<usize> {
-        ids.iter().copied().collect()
+    fn sel(ids: &[usize]) -> Selection {
+        Selection {
+            hunks: ids.iter().copied().collect(),
+            lines: HashMap::new(),
+        }
+    }
+
+    fn sel_lines(hunk: usize, lines: &[usize]) -> Selection {
+        Selection {
+            hunks: HashSet::new(),
+            lines: HashMap::from([(hunk, lines.iter().copied().collect())]),
+        }
     }
 
     fn numbered(n: usize) -> String {
@@ -304,6 +369,47 @@ mod tests {
         assert_eq!(
             apply_hunks(left.as_bytes(), right.as_bytes(), &sel(&[])),
             left.as_bytes()
+        );
+    }
+
+    /// One hunk replacing lines 4 and 5. Its lines are context 1–3 (0–2),
+    /// `-line 4` (3), `-line 5` (4), `+four` (5), `+five` (6), context 6–8.
+    fn replace_two() -> (String, String) {
+        let left = numbered(10);
+        let right = left.replace("line 4\nline 5\n", "four\nfive\n");
+        (left, right)
+    }
+
+    #[test]
+    fn single_lines() {
+        let (l, r) = replace_two();
+        let apply = |lines: &[usize]| {
+            String::from_utf8(apply_hunks(l.as_bytes(), r.as_bytes(), &sel_lines(0, lines))).unwrap()
+        };
+        assert_eq!(apply(&[]), l);
+        assert_eq!(apply(&[3, 4, 5, 6]), r);
+        // Only the removal of line 4.
+        assert_eq!(apply(&[3]), l.replace("line 4\n", ""));
+        // Only the addition of "five".
+        assert_eq!(apply(&[6]), l.replace("line 5\n", "line 5\nfive\n"));
+        // Drop line 4 and add "four": additions follow the kept lines of
+        // the block, as with `git add -p`.
+        assert_eq!(apply(&[3, 5]), l.replace("line 4\nline 5\n", "line 5\nfour\n"));
+    }
+
+    #[test]
+    fn lines_in_one_hunk_whole_other() {
+        let (l, r) = two_hunks();
+        // Hunk 0's lines: context 1–2 (0–1), `-line 3` (2), `+line 3 changed` (3).
+        let selection = Selection {
+            hunks: HashSet::from([1]),
+            lines: HashMap::from([(0, HashSet::from([3]))]),
+        };
+        let out = String::from_utf8(apply_hunks(l.as_bytes(), r.as_bytes(), &selection)).unwrap();
+        assert_eq!(
+            out,
+            l.replace("line 3\n", "line 3\nline 3 changed\n")
+                .replace("line 27\n", "line 27 changed\n")
         );
     }
 
@@ -388,6 +494,21 @@ mod tests {
         assert_eq!(d.get("right", "tool.sh").unwrap(), b"#!/bin/sh\n");
         let mode = fs::metadata(d.0.join("right/tool.sh")).unwrap().permissions().mode();
         assert_eq!(mode & 0o111, 0o111);
+    }
+
+    #[test]
+    fn line_plan_from_json() {
+        let d = Dirs::new("lines");
+        let (l, r) = replace_two();
+        d.put("left", "f.txt", l.as_bytes());
+        d.put("right", "f.txt", r.as_bytes());
+        d.put("right", "new.txt", b"a\nb\nc\n");
+        d.apply(r#"{"files":{"f.txt":{"all":false,"lines":{"0":[3,5]}},"new.txt":{"all":false,"lines":{"0":[0,2]}}}}"#);
+        assert_eq!(
+            String::from_utf8(d.get("right", "f.txt").unwrap()).unwrap(),
+            l.replace("line 4\nline 5\n", "line 5\nfour\n")
+        );
+        assert_eq!(d.get("right", "new.txt").unwrap(), b"a\nc\n");
     }
 
     #[test]

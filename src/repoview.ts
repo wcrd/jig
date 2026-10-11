@@ -759,7 +759,7 @@ export class RepoView {
         `<span class="muted">${selected} of ${total} ${total === 1 ? "change" : "changes"} ticked for the first commit</span>` +
         `<button class="modebar-button" data-action="message">${p.message === null ? "First commit message…" : "Edit message…"}</button>`;
       action = "Split";
-      hint = "Tick files and hunks · Enter · Esc";
+      hint = "Tick files, hunks or lines · Enter · Esc";
     } else {
       const count = p.marked.size;
       body = `<span class="modebar-title">Abandon</span><span>${count} ${count === 1 ? "commit" : "commits"} marked</span>`;

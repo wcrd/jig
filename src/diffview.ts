@@ -82,8 +82,8 @@ export function diffLines(
   lines: string[] | null,
   language: string | null,
   newHighlight: Segment[][] | null,
-  /** In split mode, whether each hunk is ticked for the first commit. */
-  split: ((hunk: number) => boolean) | null = null,
+  /** In split mode, what's ticked for the first commit. */
+  split: SplitTicks | null = null,
 ): LineSet | { placeholder: string } {
   if (file.binary) return { placeholder: "Binary file not shown" };
   if (file.omitted) return { placeholder: "Diff too large to show" };
@@ -126,7 +126,7 @@ export function diffLines(
     context(gap.from, top, gap);
     const hunk = file.hunks[g];
     // Splitting needs a header with a checkbox on every hunk.
-    const check = split && hunk ? hunkCheck(g, split(g)) : "";
+    const check = split && hunk ? hunkCheck(g, split.hunk(g)) : "";
     if (hidden > 0 || (g === 0 && size === 0) || check) {
       rows.push(gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : "", check));
     }
@@ -140,8 +140,12 @@ export function diffLines(
         const left = line.kind === "+" ? "" : String(oldNo++);
         const right = line.kind === "-" ? "" : String(newNo++);
         maxChars = Math.max(maxChars, displayLength(line.tokens.map(([, t]) => t).join("")));
-        const html = lineHtml(line, left, right, segments);
-        rows.push(split && !split(g) ? html.replace('class="line ', 'class="line unselected ') : html);
+        if (split && line.kind !== " ") {
+          const on = split.line(g, i);
+          rows.push(lineHtml(line, left, right, segments, lineCheck(g, i, on), !on));
+        } else {
+          rows.push(lineHtml(line, left, right, segments));
+        }
       });
     }
   });
@@ -155,8 +159,20 @@ function hunkHeader(hunk: { oldStart: number; oldCount: number; newStart: number
 const UP = `<svg viewBox="0 0 12 12" width="10" height="10"><path d="M6 9.5v-7M2.8 5.5L6 2.3l3.2 3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 const DOWN = `<svg viewBox="0 0 12 12" width="10" height="10"><path d="M6 2.5v7M2.8 6.5L6 9.7l3.2-3.2" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
-function hunkCheck(hunk: number, checked: boolean): string {
-  return `<span class="check${checked ? " on" : ""}" data-hunk-check="${hunk}" title="Include this hunk in the first commit"></span>`;
+/** In split mode, what's ticked for the first commit. */
+export interface SplitTicks {
+  hunk(hunk: number): "none" | "some" | "all";
+  /** Whether line `line` (an index into the hunk's lines) is ticked. */
+  line(hunk: number, line: number): boolean;
+}
+
+function hunkCheck(hunk: number, state: "none" | "some" | "all"): string {
+  const cls = { none: "", some: " some", all: " on" }[state];
+  return `<span class="check${cls}" data-hunk-check="${hunk}" title="Include this hunk in the first commit"></span>`;
+}
+
+function lineCheck(hunk: number, line: number, checked: boolean): string {
+  return `<span class="check line-check${checked ? " on" : ""}" data-line-check="${hunk}:${line}" title="Include this line in the first commit (shift-click for a range)"></span>`;
 }
 
 function gapRow(g: number, hidden: number, first: boolean, last: boolean, header: string, check = ""): string {
@@ -190,10 +206,10 @@ function contextLines(
   return rows;
 }
 
-function lineHtml(line: DiffLine, left: string, right: string, segments: Segment[] | null): string {
-  const cls = line.kind === "+" ? "add" : line.kind === "-" ? "del" : "ctx";
+function lineHtml(line: DiffLine, left: string, right: string, segments: Segment[] | null, check = "", unselected = false): string {
+  const cls = (line.kind === "+" ? "add" : line.kind === "-" ? "del" : "ctx") + (unselected ? " unselected" : "");
   const tokens = line.kind === " " ? line.tokens.map(([, t]) => [false, t] as [boolean, string]) : line.tokens;
-  return `<div class="line ${cls}"><span class="no">${left}</span><span class="no">${right}</span><span class="code">${codeHtml(tokens, segments)}</span></div>`;
+  return `<div class="line ${cls}"><span class="no">${check}${left}</span><span class="no">${right}</span><span class="code">${codeHtml(tokens, segments)}</span></div>`;
 }
 
 /**
