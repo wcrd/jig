@@ -5,7 +5,9 @@
 //!   bend at the commits they connect.
 //! - A commit continues its first parent in its own lane; other parents get a
 //!   fresh lane. Lines from several children converge on a commit at its row.
-//! - Freed lanes are reused leftmost-first, keeping the graph compact.
+//! - Freed lanes are reused leftmost-first, keeping the graph compact. That
+//!   includes lanes that end at a commit being reused by its other parents in
+//!   the same row, so merges don't loop out to the far right.
 //! - When a trunk is given, lane 0 is reserved for its first-parent chain so
 //!   trunk is always a straight line down the left edge.
 //!
@@ -156,6 +158,15 @@ pub fn layout<K: Eq + Hash + Clone>(nodes: &[NodeInput<K>], trunk: Option<&K>) -
             edge.to_lane = lane as u32;
         }
 
+        // Lanes in use on this row include the incoming ones about to end.
+        let incoming_width = lanes.width();
+        for &(edge, _) in &incoming {
+            let edge_lane = layout.edges[edge].lane as usize;
+            if edge_lane != lane {
+                lanes.free(edge_lane);
+            }
+        }
+
         let mut continues = false;
         let mut seen = HashSet::new();
         for (target, kind) in &node.edges {
@@ -200,14 +211,8 @@ pub fn layout<K: Eq + Hash + Clone>(nodes: &[NodeInput<K>], trunk: Option<&K>) -
             }
         }
 
-        let width = lanes.width().max(lane + 1);
+        let width = lanes.width().max(incoming_width).max(lane + 1);
 
-        for &(edge, _) in &incoming {
-            let edge_lane = layout.edges[edge].lane as usize;
-            if !(continues && edge_lane == lane) {
-                lanes.free(edge_lane);
-            }
-        }
         if !continues && lanes.slots.get(lane) == Some(&true) {
             lanes.free(lane);
         }
@@ -290,8 +295,8 @@ mod tests {
     }
 
     #[test]
-    fn lanes_are_not_reused_in_the_row_they_end() {
-        // b's lane ends at a; a's second parent must not reuse it.
+    fn lanes_ending_at_a_merge_are_reused_by_its_other_parents() {
+        // b's lane ends at a, and a's second parent takes it over.
         let nodes = [
             node("c", &["a"]),
             node("b", &["a"]),
@@ -300,8 +305,9 @@ mod tests {
             node("p", &[]),
         ];
         let layout = layout(&nodes, None);
-        assert_eq!(lanes(&layout), [0, 1, 0, 2, 0]);
-        // Once freed, lane 1 is available again.
+        assert_eq!(lanes(&layout), [0, 1, 0, 1, 0]);
+        assert_eq!(layout.rows[2].width, 2);
+        // Lanes freed earlier are reused by new heads too.
         let nodes = [
             node("c", &["a"]),
             node("b", &["a"]),
