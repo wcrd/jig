@@ -3,6 +3,7 @@ name = "jig"
 version = "0.1.0"
 description = "A GUI graph viewer for Jujutsu"
 edition = "2024"
+license = "MIT"
 
 [lib]
 name = "jig_lib"
