@@ -102,7 +102,9 @@ export class DetailsPanel {
     this.changesView = prefs.changesView === "tree" ? "tree" : "list";
 
     el.tabs.addEventListener("click", (event) => {
-      const button = (event.target as HTMLElement).closest<HTMLElement>("[data-tab]");
+      const target = event.target as HTMLElement;
+      if (target.closest("[data-action='swap']")) return this.source.swapCompare();
+      const button = target.closest<HTMLElement>("[data-tab]");
       if (button) this.setTab(button.dataset.tab as DetailsTab);
     });
     el.fileHeader.addEventListener("click", (event) => {
@@ -145,6 +147,7 @@ export class DetailsPanel {
     this.row = null;
     this.diff = null;
     this.el.info.innerHTML = message ? `<div class="placeholder-text">${escapeHtml(message)}</div>` : "";
+    this.updateContext();
     this.el.fileHeader.innerHTML = "";
     this.el.fileList.innerHTML = "";
     this.el.view.innerHTML = "";
@@ -157,6 +160,7 @@ export class DetailsPanel {
     this.row = row;
     this.diff = null;
     this.el.info.innerHTML = this.infoHtml(row, null);
+    this.updateContext();
     this.renderLeft();
     if (this.tab !== "tree") this.el.view.innerHTML = "";
   }
@@ -168,6 +172,7 @@ export class DetailsPanel {
     this.diff = diff;
     this.changesTree = buildTree(diff.files.map((f) => f.path));
     this.el.info.innerHTML = this.infoHtml(row, diff);
+    this.updateContext();
     const found = previousPath ? diff.files.findIndex((f) => f.path === previousPath) : -1;
     this.fileIndex = found >= 0 ? found : 0;
     this.renderLeft();
@@ -179,6 +184,7 @@ export class DetailsPanel {
     this.row = to;
     this.diff = null;
     this.el.info.innerHTML = this.compareInfoHtml(from, to);
+    this.updateContext();
     this.renderLeft();
     if (this.tab !== "tree") this.el.view.innerHTML = "";
   }
@@ -203,6 +209,7 @@ export class DetailsPanel {
     };
     this.changesTree = buildTree(compare.files.map((f) => f.path));
     this.el.info.innerHTML = this.compareInfoHtml(from, to);
+    this.updateContext();
     const found = previousPath ? compare.files.findIndex((f) => f.path === previousPath) : -1;
     this.fileIndex = found >= 0 ? found : 0;
     this.renderLeft();
@@ -220,15 +227,30 @@ export class DetailsPanel {
     );
   }
 
-  private compareBanner(): string {
+  /** Shows what the panel is about after the tabs: the commit, or both ends of a comparison. */
+  private updateContext() {
+    let context = this.el.tabs.querySelector<HTMLElement>(".tab-context");
+    if (!context) {
+      context = document.createElement("div");
+      context.className = "tab-context";
+      this.el.tabs.appendChild(context);
+    }
+    const id = (row: LogRow) =>
+      `<span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen, 8)}</span>`;
+    const summary = (row: LogRow) =>
+      row.summary ? escapeHtml(row.summary) : `<span class="placeholder">(no description set)</span>`;
     const from = this.compareFrom;
     const to = this.row;
-    if (!from || !to) return "";
-    return (
-      `<span class="cmp-banner" title="Comparing ${from.changeId.slice(0, 8)} → ${to.changeId.slice(0, 8)}">` +
-      `<span class="id change-id">${from.changeId.slice(0, 8)}</span> → <span class="id change-id">${to.changeId.slice(0, 8)}</span></span>` +
-      `<button class="header-button" data-action="swap" title="Swap direction">⇄</button>`
-    );
+    if (!to) {
+      context.innerHTML = "";
+    } else if (from) {
+      context.innerHTML =
+        `<span class="ctx-compare" title="${escapeHtml(`${from.summary}  →  ${to.summary}`)}">${id(from)} <span class="ctx-summary">${summary(from)}</span>` +
+        `<span class="ctx-arrow">→</span>${id(to)} <span class="ctx-summary">${summary(to)}</span></span>` +
+        `<button class="header-button" data-action="swap" title="Swap direction">⇄</button>`;
+    } else {
+      context.innerHTML = `${id(to)} <span class="ctx-summary" title="${escapeHtml(to.summary)}">${summary(to)}</span>`;
+    }
   }
 
   showError(message: string) {
@@ -273,7 +295,7 @@ export class DetailsPanel {
   private renderChanges() {
     const diff = this.diff;
     if (!diff) {
-      this.el.fileHeader.innerHTML = this.row ? `${this.compareBanner()}<span>Changes</span>` : "";
+      this.el.fileHeader.innerHTML = this.row ? `<span>Changes</span>` : "";
       this.el.fileList.innerHTML = "";
       this.fileOrder = [];
       return;
@@ -284,7 +306,6 @@ export class DetailsPanel {
     const toggle = (view: ChangesView, icon: string, title: string) =>
       `<button class="header-button${this.changesView === view ? " active" : ""}" data-action="${view}" title="${title}">${icon}</button>`;
     this.el.fileHeader.innerHTML =
-      this.compareBanner() +
       `<span>${files.length} ${files.length === 1 ? "file" : "files"} changed</span>` +
       (files.length ? `<span class="stats"><span class="add">+${additions}</span> <span class="del">−${deletions}</span></span>` : "") +
       `<span class="header-buttons">${toggle("list", LIST_ICON, "Show as list")}${toggle("tree", TREE_ICON, "Show as tree")}</span>`;

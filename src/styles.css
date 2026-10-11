@@ -532,6 +532,7 @@ body.resizing-columns * {
 .detail-tabs {
   flex: none;
   display: flex;
+  align-items: center;
   justify-content: flex-start;
   gap: 2px;
   padding: 5px;
@@ -1642,4 +1643,53 @@ dialog.prompt input:focus {
 .load-anyway {
   display: inline-grid;
   margin-top: 10px;
+}
+
+/* What the details panel is showing, after the tabs. */
+.tab-context {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 14px;
+  padding-left: 14px;
+  border-left: 1px solid var(--border);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.tab-context:empty {
+  display: none;
+}
+
+.ctx-compare {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ctx-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ctx-compare .ctx-summary {
+  max-width: 34%;
+}
+
+.ctx-arrow {
+  color: var(--muted);
+}
+
+.detail-tabs .header-button {
+  padding: 0 4px;
+  font-size: 13px;
+}
+
+.tab-context .header-button {
+  flex: none;
 }
