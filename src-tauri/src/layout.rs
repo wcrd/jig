@@ -104,6 +104,25 @@ impl Lanes {
     }
 }
 
+/// Whether following first parents from `from` through the graph reaches
+/// `to` (both must be shown; elided stretches count as first parents).
+pub fn first_parent_line_reaches<K: Eq + Hash + Clone>(nodes: &[NodeInput<K>], from: &K, to: &K) -> bool {
+    let row_of: HashMap<&K, usize> = nodes.iter().enumerate().map(|(i, n)| (&n.id, i)).collect();
+    let mut cursor = row_of.get(from).copied();
+    while let Some(row) = cursor {
+        if &nodes[row].id == to {
+            return true;
+        }
+        cursor = nodes[row]
+            .edges
+            .first()
+            .filter(|(_, kind)| *kind != EdgeKind::Missing)
+            .and_then(|(target, _)| row_of.get(target).copied())
+            .filter(|&target| target > row);
+    }
+    false
+}
+
 /// Lays out `nodes`, which must be in topological order (children first).
 /// `trunk` is the head of the chain to pin to lane 0, if any.
 pub fn layout<K: Eq + Hash + Clone>(nodes: &[NodeInput<K>], trunk: Option<&K>) -> Layout {
@@ -316,6 +335,23 @@ mod tests {
             node("p", &[]),
         ];
         assert_eq!(lanes(&super::layout(&nodes, None)), [0, 1, 0, 1, 0]);
+    }
+
+    #[test]
+    fn working_copy_line_through_trunk() {
+        // @ -> w1 -> t2 (trunk) -> t1, plus a side branch s on t2.
+        let nodes = [
+            node("@", &["w1"]),
+            node("s", &["t2"]),
+            node("w1", &["t2"]),
+            node("t2", &["t1"]),
+            node("t1", &[]),
+        ];
+        assert!(first_parent_line_reaches(&nodes, &"@", &"t2"));
+        assert!(!first_parent_line_reaches(&nodes, &"t1", &"t2"));
+        // Pinning from @ keeps @, w1 and trunk in one straight column.
+        let layout = layout(&nodes, Some(&"@"));
+        assert_eq!(lanes(&layout), [0, 1, 0, 0, 0]);
     }
 
     #[test]

@@ -453,14 +453,20 @@ async fn load_log_async(
         });
     }
 
-    // Pin trunk() to the left edge when it's in view.
+    // Pin a straight line down the left edge: from @ through trunk when @'s
+    // first-parent line reaches trunk (as jj log draws your work on top of
+    // main), otherwise trunk alone.
     let trunk = match parse(&parse_context, "present(trunk())")
         .and_then(|e| evaluate(&repo, &resolver, &e))
     {
         Ok(trunk) => trunk.iter().next().transpose()?,
         Err(_) => None,
     };
-    let layout = layout::layout(&nodes, trunk.as_ref());
+    let spine_head = match (&wc_id, &trunk) {
+        (Some(wc), Some(trunk)) if layout::first_parent_line_reaches(&nodes, wc, trunk) => Some(wc.clone()),
+        _ => trunk.clone(),
+    };
+    let layout = layout::layout(&nodes, spine_head.as_ref());
 
     let refs = ref_index(&repo);
     let mut other_workspaces: HashMap<CommitId, Vec<String>> = HashMap::new();
