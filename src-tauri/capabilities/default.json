@@ -3,5 +3,12 @@
   "identifier": "default",
   "description": "Capabilities for the main window",
   "windows": ["main"],
-  "permissions": ["core:default", "core:menu:default", "dialog:allow-open", "dialog:allow-ask", "dialog:allow-message"]
+  "permissions": [
+    "core:default",
+    "core:menu:default",
+    "core:window:allow-set-theme",
+    "dialog:allow-open",
+    "dialog:allow-ask",
+    "dialog:allow-message"
+  ]
 }

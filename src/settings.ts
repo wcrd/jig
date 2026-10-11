@@ -1,9 +1,45 @@
-// App settings: for now, the graph's lane palette. Palettes are written into a
-// style element as --lane-N, so switching recolours the graph without a
-// re-render.
+// App settings: the theme and the graph's lane palette. The theme is the
+// `data-theme` attribute on <html>, which the stylesheet keys off. Palettes
+// are written into a style element as --lane-N, so switching either recolours
+// the graph without a re-render.
 
-import { storage } from "./api";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+import { isTauri, storage } from "./api";
 import { escapeHtml } from "./format";
+
+type Theme = "system" | "light" | "dark";
+
+const THEMES: [Theme, string][] = [
+  ["system", "System"],
+  ["light", "Light"],
+  ["dark", "Dark"],
+];
+
+const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
+
+function savedTheme(): Theme {
+  const theme = storage("theme");
+  return theme === "light" || theme === "dark" ? theme : "system";
+}
+
+/** Applies the saved theme, or `theme` (saving it). */
+export function applyTheme(theme?: Theme) {
+  if (theme !== undefined) storage("theme", theme === "system" ? null : theme);
+  const choice = theme ?? savedTheme();
+  const dark = choice === "dark" || (choice === "system" && systemDark.matches);
+  document.documentElement.dataset.theme = dark ? "dark" : "light";
+  // The title bar and other native parts of the window follow along.
+  if (isTauri) getCurrentWindow().setTheme(choice === "system" ? null : choice).catch(() => {});
+}
+
+// Following the system means following its changes too; focus is a fallback
+// for webviews that don't report the change.
+const followSystem = () => {
+  if (savedTheme() === "system") applyTheme();
+};
+systemDark.addEventListener("change", followSystem);
+window.addEventListener("focus", followSystem);
 
 interface Palette {
   id: string;
@@ -59,7 +95,7 @@ export function applyPalette(id?: string) {
     document.head.appendChild(style);
   }
   style.textContent =
-    `:root { ${laneVars(p.light)} }\n` + `@media (prefers-color-scheme: dark) { :root { ${laneVars(p.dark)} } }`;
+    `:root { ${laneVars(p.light)} }\n` + `:root[data-theme="dark"] { ${laneVars(p.dark)} }`;
 }
 
 function swatches(colors: string[], cls: string): string {
@@ -71,11 +107,16 @@ let open: HTMLDialogElement | null = null;
 export function showSettings() {
   if (open) return;
   const current = palette(storage("palette")).id;
+  const theme = savedTheme();
   const dialog = document.createElement("dialog");
   open = dialog;
   dialog.className = "prompt settings";
   dialog.innerHTML =
     `<div class="prompt-title">Settings</div>` +
+    `<div class="list-section">Theme</div>` +
+    `<div class="theme-options">` +
+    THEMES.map(([id, name]) => `<button data-theme-choice="${id}"${id === theme ? ` class="on"` : ""}>${name}</button>`).join("") +
+    `</div>` +
     `<div class="list-section">Graph colours</div>` +
     `<div class="palette-options">` +
     PALETTES.map(
@@ -93,7 +134,13 @@ export function showSettings() {
     const input = event.target as HTMLInputElement;
     if (input.name === "palette") applyPalette(input.value);
   });
-  dialog.querySelector("button")!.addEventListener("click", () => dialog.close());
+  dialog.addEventListener("click", (event) => {
+    const button = (event.target as HTMLElement).closest<HTMLElement>("[data-theme-choice]");
+    if (!button) return;
+    applyTheme(button.dataset.themeChoice as Theme);
+    for (const b of dialog.querySelectorAll(".theme-options button")) b.classList.toggle("on", b === button);
+  });
+  dialog.querySelector(".prompt-buttons button")!.addEventListener("click", () => dialog.close());
   dialog.addEventListener("close", () => {
     dialog.remove();
     open = null;

@@ -5,8 +5,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { fetchInitialRepo, isTauri, storage } from "./api";
 import { escapeHtml } from "./format";
 import { RepoView } from "./repoview";
-import { applyPalette, showSettings } from "./settings";
+import { applyPalette, applyTheme, showSettings } from "./settings";
 
+applyTheme();
 applyPalette();
 
 const POLL_MS = 2500;

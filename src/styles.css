@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: light;
   --bg: #ffffff;
   --toolbar-bg: #f6f6f6;
   --border: #e2e2e2;
@@ -48,49 +48,50 @@
   /* Lane colours (--lane-0 to 9) are set by settings.ts from the palette. */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #1e1e1e;
-    --toolbar-bg: #282828;
-    --border: #383838;
-    --text: #e8e8ea;
-    --muted: #8e8e93;
-    --dim: #77777c;
-    --hover: #262628;
-    --selected: #3a3a3e;
-    --input-bg: #1a1a1a;
-    --change-id: #e879f9;
-    --commit-id: #60a5fa;
-    --tag: #9ea3cc;
-    --error-bg: #3a1f1d;
-    --panel-bg: #212121;
-    --add-bg: #1d3323;
-    --add-word: #2c5a37;
-    --add-text: #5fd47a;
-    --del-bg: #3b2022;
-    --del-word: #6b2e31;
-    --del-text: #f2726a;
-    --hunk-bg: #262a31;
-    --gutter: #5d5d63;
+/* Dark theme: data-theme is set from the theme setting (or the system) in
+   index.html and settings.ts. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1e1e1e;
+  --toolbar-bg: #282828;
+  --border: #383838;
+  --text: #e8e8ea;
+  --muted: #8e8e93;
+  --dim: #77777c;
+  --hover: #262628;
+  --selected: #3a3a3e;
+  --input-bg: #1a1a1a;
+  --change-id: #e879f9;
+  --commit-id: #60a5fa;
+  --tag: #9ea3cc;
+  --error-bg: #3a1f1d;
+  --panel-bg: #212121;
+  --add-bg: #1d3323;
+  --add-word: #2c5a37;
+  --add-text: #5fd47a;
+  --del-bg: #3b2022;
+  --del-word: #6b2e31;
+  --del-text: #f2726a;
+  --hunk-bg: #262a31;
+  --gutter: #5d5d63;
 
-    --syn-keyword: #ff7ab2;
-    --syn-string: #ff8170;
-    --syn-comment: #7f8c98;
-    --syn-number: #d9c97c;
-    --syn-type: #6bdfff;
-    --syn-function: #67b7a4;
-    --syn-builtin: #dabaff;
-    --syn-attr: #ffa14f;
-    --syn-meta: #fd8f3f;
-    --syn-variable: #4eb0cc;
+  --syn-keyword: #ff7ab2;
+  --syn-string: #ff8170;
+  --syn-comment: #7f8c98;
+  --syn-number: #d9c97c;
+  --syn-type: #6bdfff;
+  --syn-function: #67b7a4;
+  --syn-builtin: #dabaff;
+  --syn-attr: #ffa14f;
+  --syn-meta: #fd8f3f;
+  --syn-variable: #4eb0cc;
 
-    --ui-orange: #f7ad35;
-    --ui-yellow: #f2cd2a;
-    --ui-red: #f05a51;
-    --ui-green: #6fcf4f;
-    --ui-blue: #45a5f0;
-    --ui-purple: #c46ce6;
-  }
+  --ui-orange: #f7ad35;
+  --ui-yellow: #f2cd2a;
+  --ui-red: #f05a51;
+  --ui-green: #6fcf4f;
+  --ui-blue: #45a5f0;
+  --ui-purple: #c46ce6;
 }
 
 * {
@@ -2755,6 +2756,31 @@ dialog.prompt.settings .list-section {
   padding-left: 0;
 }
 
+.theme-options {
+  display: flex;
+  gap: 2px;
+  margin: 6px 0 14px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--toolbar-bg);
+}
+
+.theme-options button {
+  flex: 1;
+  padding: 3px 0;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--muted);
+}
+
+.theme-options button.on {
+  background: var(--bg);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border);
+}
+
 .palette-options {
   display: grid;
   gap: 6px;
@@ -2813,12 +2839,10 @@ dialog.prompt .palette-option input {
   display: none;
 }
 
-@media (prefers-color-scheme: dark) {
-  .swatches.light {
-    display: none;
-  }
+:root[data-theme="dark"] .swatches.light {
+  display: none;
+}
 
-  .swatches.dark {
-    display: flex;
-  }
+:root[data-theme="dark"] .swatches.dark {
+  display: flex;
 }
