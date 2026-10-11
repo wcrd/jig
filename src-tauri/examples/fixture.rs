@@ -32,6 +32,13 @@ fn main() {
         std::fs::write(file, serde_json::to_string(&tree).unwrap()).unwrap();
 
         let dir = texts.join(&row.commit_id);
+        for path in &diff.conflicts {
+            let conflict = pollster::block_on(jork_lib::conflict::conflict_hunks(&open.repo, &row.commit_id, path)).unwrap();
+            let dir = public.join("conflicts").join(&row.commit_id);
+            std::fs::create_dir_all(&dir).unwrap();
+            let file = dir.join(format!("{}.json", path.replace('/', "__")));
+            std::fs::write(file, serde_json::to_string(&conflict).unwrap()).unwrap();
+        }
         let changed = diff.files.iter().filter(|f| f.status != jork_lib::diff::FileStatus::Deleted).map(|f| &f.path);
         for path in changed.chain(&diff.conflicts) {
             std::fs::create_dir_all(&dir).unwrap();

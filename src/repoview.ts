@@ -2,7 +2,7 @@
 // its state. Each tab owns a RepoView, so switching tabs keeps scroll
 // position, selection and everything else.
 
-import { fetchCompare, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
+import { fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { OpLogPanel } from "./oplog";
@@ -106,6 +106,9 @@ export class RepoView {
         treeFiles: (commitId) => fetchTreeFiles(this.path, commitId),
         fileMenu: (path) => this.fileMenu(path),
         splitChanged: () => this.updateModebar(),
+        conflictHunks: (commitId, filePath) => fetchConflictHunks(this.path, commitId, filePath),
+        resolveConflict: (filePath, content) => this.resolveConflict(filePath, (row) => jj.resolve(this.path, row.commitId, filePath, content)),
+        resolveSide: (filePath, side) => this.resolveConflict(filePath, (row) => jj.resolveSide(this.path, row.commitId, filePath, side)),
         swapCompare: () => {
           this.compareSwapped = !this.compareSwapped;
           this.scheduleDetails();
@@ -290,11 +293,22 @@ export class RepoView {
 
   /** Handles keys for the list; returns whether the key was used. */
   handleKey(event: KeyboardEvent): boolean {
-    if (document.activeElement === this.revsetInput || !this.log) return false;
+    // Typing in any text field (revset, prompts, the message editor, the
+    // merge result) must never trigger single-key commands.
+    const focused = event.target as HTMLElement | null;
+    if (focused?.closest("input, textarea, select, [contenteditable]") || !this.log) return false;
     if (event.metaKey || event.ctrlKey) return false;
     if (this.oplog.visible) {
       if (event.key === "Escape") this.oplog.hide();
       return event.key === "Escape";
+    }
+    // The merge editor owns the keyboard: n / p move between conflicts.
+    if (this.details.merging) {
+      if (event.key === "n" || event.key === "p") {
+        this.details.mergeJump(event.key === "n" ? 1 : -1);
+        return true;
+      }
+      return event.key.length === 1;
     }
     if (this.pending) return this.handlePendingKey(event);
     if (this.handleCommandKey(event)) return true;
@@ -593,6 +607,12 @@ export class RepoView {
         { undo: true },
       );
     }
+  }
+
+  private resolveConflict(filePath: string, run: (row: LogRow) => Promise<CommandOutput>) {
+    const row = this.log?.rows[this.selected];
+    if (!row) return;
+    this.act(`Resolve ${filePath}`, () => run(row), { undo: true });
   }
 
   private async editSplitMessage() {

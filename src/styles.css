@@ -2253,3 +2253,234 @@ dialog.prompt textarea:focus {
   color: var(--conflict);
   font-weight: 600;
 }
+
+/* Merge editor */
+.merge {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.merge-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px 0 12px;
+  background: var(--toolbar-bg);
+  border-bottom: 1px solid var(--border);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.merge-count {
+  color: var(--muted);
+  font-weight: normal;
+  font-size: 12px;
+}
+
+.header-button.primary {
+  border-color: var(--lane-4);
+  background: var(--lane-4);
+  color: #fff;
+}
+
+.header-button.primary[disabled] {
+  opacity: 0.45;
+}
+
+.merge-labels,
+.mblock {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "left result right";
+}
+
+.merge.stacked .merge-labels,
+.merge.stacked .mblock {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-areas: "left right" "result result";
+}
+
+.merge-labels {
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.mlabel {
+  padding: 5px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mlabel.left,
+.mcell.left {
+  grid-area: left;
+}
+
+.mlabel.result,
+.mcell.result {
+  grid-area: result;
+}
+
+.mlabel.right,
+.mcell.right {
+  grid-area: right;
+}
+
+.mlabel.left {
+  color: var(--lane-5);
+}
+
+.mlabel.right {
+  color: var(--lane-4);
+}
+
+.merge.stacked .mlabel.result {
+  display: none;
+}
+
+.merge-body {
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 24px;
+}
+
+.mblock {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.mcell {
+  position: relative;
+  min-width: 0;
+  border-right: 1px solid var(--border);
+}
+
+.mcell:last-child {
+  border-right: none;
+}
+
+.merge.stacked .mcell.result {
+  border-top: 1px dashed var(--border);
+  border-right: none;
+}
+
+.mcell pre,
+.mcell textarea {
+  margin: 0;
+  padding: 4px 12px;
+  font: 12px/18px ui-monospace, "SF Mono", Menlo, monospace;
+  tab-size: 4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.mblock.resolved pre {
+  color: var(--muted);
+}
+
+.mfold {
+  margin: 0 12px;
+  padding: 0 6px;
+  border: none;
+  border-radius: 3px;
+  background: var(--hunk-bg);
+  color: var(--commit-id);
+  font-size: 11px;
+}
+
+.mblock.conflict .mcell.left {
+  background: color-mix(in srgb, var(--lane-5) 9%, var(--bg));
+}
+
+.mblock.conflict .mcell.right {
+  background: color-mix(in srgb, var(--lane-4) 9%, var(--bg));
+}
+
+.mblock.conflict.unresolved .mcell.result {
+  background: color-mix(in srgb, var(--conflict) 10%, var(--bg));
+}
+
+.mcell textarea {
+  display: block;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  resize: none;
+  outline: none;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.mcell textarea:focus {
+  background: color-mix(in srgb, var(--commit-id) 6%, var(--bg));
+}
+
+.mtake {
+  position: absolute;
+  top: 3px;
+  z-index: 1;
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  font-size: 13px;
+  line-height: 1;
+}
+
+.mcell.left .mtake {
+  right: 4px;
+  color: var(--lane-5);
+}
+
+.mcell.right .mtake {
+  left: 4px;
+  color: var(--lane-4);
+}
+
+.mcell.right pre {
+  padding-left: 32px;
+}
+
+.mcell.left pre {
+  padding-right: 32px;
+}
+
+.mtake:hover {
+  background: var(--hover);
+}
+
+.mresult-tools {
+  position: absolute;
+  top: 3px;
+  right: 4px;
+  z-index: 1;
+}
+
+.mmenu {
+  width: 22px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--muted);
+}
+
+.merge-fallback {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.details-body.merging > .info-pane,
+.details-body.merging > [data-ref="split-info"] {
+  display: none;
+}

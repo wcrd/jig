@@ -11,5 +11,13 @@ fn main() {
         }
         return;
     }
+    // `jj resolve` runs it as its merge tool, too.
+    if args.get(1).map(String::as_str) == Some("--resolve-output") && args.len() >= 4 {
+        if let Err(e) = jork_lib::resolve_tool::run(&args[2], &args[3]) {
+            eprintln!("jork resolve tool: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
     jork_lib::run()
 }

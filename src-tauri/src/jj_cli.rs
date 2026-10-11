@@ -254,6 +254,71 @@ pub fn split_args(
     Ok((configs, args))
 }
 
+/// A fileset matching exactly the file at `path` (relative to the repo root).
+fn root_file_fileset(path: &str) -> Result<String> {
+    if path.is_empty() || path.starts_with('-') || path.contains('\0') {
+        bail!("invalid path: {path:?}");
+    }
+    // Fileset string literals take JSON-style escapes.
+    Ok(format!(
+        "root-file:{}",
+        serde_json::to_string(path).expect("string serializes")
+    ))
+}
+
+/// The `--config` values that make `program` act as the `jork-resolve` merge
+/// tool (writing `content` into `$output`), plus the args for `jj resolve`.
+pub fn resolve_args(
+    revision: &str,
+    file_path: &str,
+    program: &Path,
+    content: &Path,
+) -> Result<(Vec<String>, Vec<String>)> {
+    validate_revision(revision)?;
+    let fileset = root_file_fileset(file_path)?;
+    let quote = |s: &str| serde_json::to_string(s).expect("string serializes");
+    let program = program.to_str().ok_or_else(|| anyhow!("non-UTF-8 program path"))?;
+    let content = content.to_str().ok_or_else(|| anyhow!("non-UTF-8 content path"))?;
+    let configs = vec![
+        format!("merge-tools.jork-resolve.program={}", quote(program)),
+        format!(
+            "merge-tools.jork-resolve.merge-args=[{}, {}, \"$output\"]",
+            quote("--resolve-output"),
+            quote(content)
+        ),
+        "merge-tools.jork-resolve.merge-tool-edits-conflict-markers=false".to_owned(),
+    ];
+    let args = vec![
+        "resolve".to_owned(),
+        "--revision".to_owned(),
+        revision.to_owned(),
+        "--tool".to_owned(),
+        "jork-resolve".to_owned(),
+        "--".to_owned(),
+        fileset,
+    ];
+    Ok((configs, args))
+}
+
+/// `jj resolve` taking one whole side (`ours` is side #1, `theirs` side #2).
+pub fn resolve_side_args(revision: &str, file_path: &str, side: &str) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    let tool = match side {
+        "ours" => ":ours",
+        "theirs" => ":theirs",
+        _ => bail!("unknown side: {side:?}"),
+    };
+    Ok(vec![
+        "resolve".to_owned(),
+        "--revision".to_owned(),
+        revision.to_owned(),
+        "--tool".to_owned(),
+        tool.to_owned(),
+        "--".to_owned(),
+        root_file_fileset(file_path)?,
+    ])
+}
+
 pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<String>> {
     validate_revision(revision)?;
     validate_revision(into)?;
@@ -386,6 +451,38 @@ mod tests {
             v(&["split", "--revision", "a1", "--tool", "jork-split", "--message=-m"])
         );
         assert!(split_args("main", None, Path::new("/j"), Path::new("/p")).is_err());
+    }
+
+    #[test]
+    fn resolve_arg_building() {
+        let (configs, args) =
+            resolve_args("a1", "dir/x \"y\".txt", Path::new("/x y/jork"), Path::new("/tmp/c")).unwrap();
+        assert_eq!(
+            configs,
+            v(&[
+                r#"merge-tools.jork-resolve.program="/x y/jork""#,
+                r#"merge-tools.jork-resolve.merge-args=["--resolve-output", "/tmp/c", "$output"]"#,
+                "merge-tools.jork-resolve.merge-tool-edits-conflict-markers=false",
+            ])
+        );
+        assert_eq!(
+            args,
+            v(&[
+                "resolve", "--revision", "a1", "--tool", "jork-resolve", "--",
+                r#"root-file:"dir/x \"y\".txt""#,
+            ])
+        );
+        for bad in ["", "-x", "a\0b"] {
+            assert!(resolve_args("a1", bad, Path::new("/j"), Path::new("/c")).is_err());
+        }
+        assert!(resolve_args("main", "x", Path::new("/j"), Path::new("/c")).is_err());
+        assert_eq!(
+            resolve_side_args("a1", "x.txt", "ours").unwrap(),
+            v(&["resolve", "--revision", "a1", "--tool", ":ours", "--", r#"root-file:"x.txt""#])
+        );
+        assert_eq!(resolve_side_args("a1", "x.txt", "theirs").unwrap()[4], ":theirs");
+        assert!(resolve_side_args("a1", "x.txt", "mine").is_err());
+        assert!(resolve_side_args("a1", "", "ours").is_err());
     }
 
     #[test]

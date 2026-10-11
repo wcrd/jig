@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 import type { SplitPlan } from "./details";
+import type { ConflictFile } from "./mergeview";
 import type { CommandOutput, CommitDiff, CompareDiff, FileDiff, FileText, LogResponse, TreeEntry } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
@@ -98,6 +99,10 @@ export const jj = {
     invoke<CommandOutput>("jj_split", { path, revision, plan, message }),
   opRestore: (path: string, opId: string) => invoke<CommandOutput>("jj_op_restore", { path, opId }),
   opRevert: (path: string, opId: string) => invoke<CommandOutput>("jj_op_revert", { path, opId }),
+  resolve: (path: string, revision: string, filePath: string, content: string) =>
+    invoke<CommandOutput>("jj_resolve", { path, revision, filePath, content }),
+  resolveSide: (path: string, revision: string, filePath: string, side: "ours" | "theirs") =>
+    invoke<CommandOutput>("jj_resolve_side", { path, revision, filePath, side }),
   undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
   redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };
@@ -139,4 +144,9 @@ export function fetchOpChanges(path: string, opId: string): Promise<OpChanges> {
 export function fetchOpLog(path: string, limit = 300): Promise<OpEntry[]> {
   if (!isTauri) return fixture("/oplog.json", "operation log");
   return invoke<OpEntry[]>("op_log", { path, limit });
+}
+
+export function fetchConflictHunks(path: string, commitId: string, filePath: string): Promise<ConflictFile> {
+  if (!isTauri) return fixture(`/conflicts/${commitId}/${filePath.replaceAll("/", "__")}.json`, "conflict for this file");
+  return invoke<ConflictFile>("conflict_hunks", { path, commitId, filePath });
 }

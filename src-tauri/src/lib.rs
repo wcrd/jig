@@ -1,7 +1,9 @@
+pub mod conflict;
 pub mod diff;
 pub mod jj_cli;
 pub mod layout;
 pub mod repo;
+pub mod resolve_tool;
 pub mod split_tool;
 
 use std::collections::HashMap;
@@ -148,6 +150,18 @@ async fn file_text(
         ))
     })
     .await
+}
+
+#[tauri::command]
+async fn conflict_hunks(
+    path: String,
+    commit_id: String,
+    file_path: String,
+    repos: State<'_, OpenRepos>,
+) -> Result<conflict::ConflictFile, String> {
+    let open = open_repo(&path, &repos).await?;
+    blocking(move || pollster::block_on(conflict::conflict_hunks(&open.repo, &commit_id, &file_path)))
+        .await
 }
 
 #[tauri::command]
@@ -383,6 +397,47 @@ async fn jj_split(
     .await
 }
 
+/// Resolves `file_path` in `revision` to `content`. jj runs this very binary as
+/// its merge tool (see `resolve_tool`), which copies the content into place.
+#[tauri::command]
+async fn jj_resolve(
+    path: String,
+    revision: String,
+    file_path: String,
+    content: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        let program = std::env::current_exe()?;
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let content_path = std::env::temp_dir().join(format!(
+            "jork-resolve-content-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        let (configs, args) =
+            jj_cli::resolve_args(&revision, &file_path, &program, &content_path)?;
+        std::fs::write(&content_path, content.as_bytes())?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        let result = jj_cli::run_with_config(&root, &configs, &args);
+        let _ = std::fs::remove_file(&content_path);
+        result
+    })
+    .await
+}
+
+/// Resolves `file_path` in `revision` by taking one whole side.
+#[tauri::command]
+async fn jj_resolve_side(
+    path: String,
+    revision: String,
+    file_path: String,
+    side: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::resolve_side_args(&revision, &file_path, &side)).await
+}
+
 #[derive(serde::Serialize)]
 struct InitialRepo {
     path: String,
@@ -420,6 +475,7 @@ pub fn run() {
             compare_diff,
             file_diff,
             file_text,
+            conflict_hunks,
             tree_files,
             head_op_id,
             initial_repo,
@@ -440,6 +496,8 @@ pub fn run() {
             jj_absorb,
             jj_squash,
             jj_split,
+            jj_resolve,
+            jj_resolve_side,
             op_log,
             op_changes,
             jj_op_restore,
