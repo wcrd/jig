@@ -210,6 +210,7 @@ export class RepoView {
     this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
     this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
+    this.ref("help").addEventListener("click", () => showHelp());
     this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
     this.ref("redo").addEventListener("click", () => this.act("Redo", () => jj.redo(this.path)));
     this.spacer.addEventListener("contextmenu", (event) => {

@@ -2601,3 +2601,41 @@ dialog.prompt.help {
   font: 11.5px ui-monospace, "SF Mono", Menlo, monospace;
   color: var(--commit-id);
 }
+
+/* Undo, redo and the op log act on history, so they're grouped apart. */
+.history-group {
+  display: flex;
+  margin-left: 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.history-group .icon-button {
+  height: 24px;
+  border: none;
+  border-radius: 0;
+}
+
+.history-group .icon-button + .icon-button {
+  border-left: 1px solid var(--border);
+}
+
+.history-group .icon-button.active {
+  background: var(--selected);
+}
+
+.help-button {
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.help-button + .toolbar-status {
+  margin-left: 8px;
+}
