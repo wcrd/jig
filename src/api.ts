@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { CommandOutput, CommitDiff, CompareDiff, FileText, LogResponse, TreeEntry } from "./types";
+import type { CommandOutput, CommitDiff, CompareDiff, FileDiff, FileText, LogResponse, TreeEntry } from "./types";
 
 export const isTauri = "__TAURI_INTERNALS__" in window;
 
@@ -39,6 +39,18 @@ export function fetchDiff(path: string, commitId: string): Promise<CommitDiff> {
 export function fetchCompare(path: string, from: string, to: string): Promise<CompareDiff> {
   if (isTauri) return invoke<CompareDiff>("compare_diff", { path, from, to });
   return fixture(`/compare/${from}..${to}.json`, "comparison for these commits");
+}
+
+/** One file's diff, for files left out of a commit's or comparison's diff. */
+export function fetchFileDiff(
+  path: string,
+  from: string | null,
+  to: string,
+  filePath: string,
+  sourcePath: string | null,
+  force: boolean,
+): Promise<FileDiff> {
+  return invoke<FileDiff>("file_diff", { path, from, to, filePath, sourcePath, force });
 }
 
 export function fetchFileText(path: string, commitId: string, filePath: string): Promise<FileText> {

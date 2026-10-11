@@ -14,7 +14,7 @@ use jj_lib::conflicts::{
 use jj_lib::copies::{CopyOperation, CopyRecords};
 use jj_lib::diff_presentation::unified::{DiffLineType, git_diff_part, unified_diff_hunks};
 use jj_lib::diff_presentation::{DiffTokenType, LineCompareMode};
-use jj_lib::matchers::EverythingMatcher;
+use jj_lib::matchers::{EverythingMatcher, FilesMatcher, Matcher};
 use jj_lib::merge::Diff;
 use jj_lib::object_id::ObjectId;
 use jj_lib::merged_tree::MergedTree;
@@ -24,11 +24,21 @@ use jj_lib::repo_path::RepoPathBuf;
 use serde::Serialize;
 
 const CONTEXT_LINES: usize = 3;
-/// Files bigger than this aren't diffed.
-const MAX_FILE_BYTES: usize = 2 * 1024 * 1024;
+/// Files bigger than this aren't diffed unless asked for explicitly: huge
+/// files (minified code, data dumps) can take seconds to diff.
+const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
 /// Once a commit's diff reaches this many lines, remaining files are listed
-/// without their diffs.
+/// without their diffs; the UI loads each with `file_diff` when selected.
 const MAX_TOTAL_LINES: usize = 40_000;
+
+/// How much `diff_trees` diffs.
+#[derive(Clone, Copy)]
+enum Limits {
+    /// A whole commit: stop diffing files once the line budget is spent.
+    Commit,
+    /// One file the user asked for; `force` diffs it however big it is.
+    File { force: bool },
+}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -78,8 +88,12 @@ pub struct FileDiff {
     pub conflict: bool,
     pub binary: bool,
     /// The diff wasn't computed: the file is too big, or the commit's diff
-    /// already hit the size budget.
+    /// already hit the size budget. Load it with `file_diff`.
     pub omitted: bool,
+    /// Omitted because the file is bigger than `MAX_FILE_BYTES`.
+    pub too_large: bool,
+    /// Size of the larger side, in bytes.
+    pub size: usize,
     pub additions: usize,
     pub deletions: usize,
     /// Lines in the old and new file, so the UI knows how much unchanged text
@@ -150,7 +164,16 @@ pub async fn commit_diff(
     for parent_id in commit.parent_ids() {
         copy_records.add_records(copy_records_between(store, parent_id, commit.id()).await?);
     }
-    let files = diff_trees(store, marker_style, &from_tree, &commit.tree(), &copy_records).await?;
+    let files = diff_trees(
+        store,
+        marker_style,
+        &from_tree,
+        &commit.tree(),
+        &copy_records,
+        &EverythingMatcher,
+        Limits::Commit,
+    )
+    .await?;
 
     Ok(CommitDiff {
         commit_id: commit.id().hex(),
@@ -270,13 +293,15 @@ async fn diff_trees(
     from_tree: &MergedTree,
     to_tree: &MergedTree,
     copy_records: &CopyRecords,
+    matcher: &dyn Matcher,
+    limits: Limits,
 ) -> Result<Vec<FileDiff>> {
     let materialize_options = ConflictMaterializeOptions {
         marker_style,
         marker_len: None,
         merge: store.merge_options().clone(),
     };
-    let tree_diff = from_tree.diff_stream_with_copies(to_tree, &EverythingMatcher, copy_records);
+    let tree_diff = from_tree.diff_stream_with_copies(to_tree, matcher, copy_records);
     let mut stream = materialized_diff_stream(
         store,
         tree_diff,
@@ -315,6 +340,8 @@ async fn diff_trees(
             conflict,
             binary: left.content.is_binary || right.content.is_binary,
             omitted: false,
+            too_large: false,
+            size: left.content.contents.len().max(right.content.contents.len()),
             additions: 0,
             deletions: 0,
             old_line_count: line_count(&left.content.contents),
@@ -325,11 +352,11 @@ async fn diff_trees(
             files.push(file);
             continue;
         }
-        if total_lines >= MAX_TOTAL_LINES
-            || left.content.contents.len() > MAX_FILE_BYTES
-            || right.content.contents.len() > MAX_FILE_BYTES
-        {
+        let force = matches!(limits, Limits::File { force: true });
+        let over_budget = matches!(limits, Limits::Commit) && total_lines >= MAX_TOTAL_LINES;
+        if over_budget || (!force && file.size > MAX_FILE_BYTES) {
             file.omitted = true;
+            file.too_large = file.size > MAX_FILE_BYTES;
             files.push(file);
             continue;
         }
@@ -406,10 +433,69 @@ pub async fn compare_diff(
     let to = store.get_commit_async(&parse(to_hex)?).await?;
     let mut copy_records = CopyRecords::default();
     copy_records.add_records(copy_records_between(store, from.id(), to.id()).await?);
-    let files = diff_trees(store, marker_style, &from.tree(), &to.tree(), &copy_records).await?;
+    let files = diff_trees(
+        store,
+        marker_style,
+        &from.tree(),
+        &to.tree(),
+        &copy_records,
+        &EverythingMatcher,
+        Limits::Commit,
+    )
+    .await?;
     Ok(CompareDiff {
         from: from.id().hex(),
         to: to.id().hex(),
         files,
     })
+}
+
+/// One file's diff, for files a commit or comparison listed as omitted.
+/// `from_hex` is `None` for a commit against its parents, as in `commit_diff`,
+/// or the other commit of a comparison.
+pub async fn file_diff(
+    repo: &Arc<ReadonlyRepo>,
+    marker_style: ConflictMarkerStyle,
+    from_hex: Option<&str>,
+    to_hex: &str,
+    file_path: &str,
+    source_path: Option<&str>,
+    force: bool,
+) -> Result<FileDiff> {
+    let store = repo.store();
+    let parse = |hex: &str| CommitId::try_from_hex(hex).ok_or_else(|| anyhow!("bad commit id"));
+    let to = store.get_commit_async(&parse(to_hex)?).await?;
+    let mut copy_records = CopyRecords::default();
+    let from_tree = match from_hex {
+        Some(from_hex) => {
+            let from = store.get_commit_async(&parse(from_hex)?).await?;
+            copy_records.add_records(copy_records_between(store, from.id(), to.id()).await?);
+            from.tree()
+        }
+        None => {
+            for parent_id in to.parent_ids() {
+                copy_records.add_records(copy_records_between(store, parent_id, to.id()).await?);
+            }
+            to.parent_tree(repo.as_ref()).await?
+        }
+    };
+    let mut paths = vec![RepoPathBuf::from_internal_string(file_path)?];
+    if let Some(source) = source_path {
+        paths.push(RepoPathBuf::from_internal_string(source)?);
+    }
+    let matcher = FilesMatcher::new(&paths);
+    let files = diff_trees(
+        store,
+        marker_style,
+        &from_tree,
+        &to.tree(),
+        &copy_records,
+        &matcher,
+        Limits::File { force },
+    )
+    .await?;
+    files
+        .into_iter()
+        .find(|f| f.path == file_path)
+        .ok_or_else(|| anyhow!("{file_path} has no changes here"))
 }

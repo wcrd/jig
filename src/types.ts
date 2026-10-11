@@ -112,7 +112,11 @@ export interface FileDiff {
   status: FileStatus;
   conflict: boolean;
   binary: boolean;
+  /** Not diffed with the rest; load it with `file_diff`. */
   omitted: boolean;
+  /** Omitted for being over the size limit, rather than the commit's budget. */
+  tooLarge: boolean;
+  size: number;
   additions: number;
   deletions: number;
   oldLineCount: number;

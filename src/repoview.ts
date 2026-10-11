@@ -2,7 +2,7 @@
 // its state. Each tab owns a RepoView, so switching tabs keeps scroll
 // position, selection and everything else.
 
-import { fetchCompare, fetchDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
+import { fetchCompare, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { renderRow } from "./rows";
@@ -75,6 +75,7 @@ export class RepoView {
       },
       {
         fileText: (commitId, filePath) => fetchFileText(this.path, commitId, filePath),
+        fileDiff: (from, to, file, force) => fetchFileDiff(this.path, from, to, file.path, file.sourcePath, force),
         treeFiles: (commitId) => fetchTreeFiles(this.path, commitId),
         swapCompare: () => {
           this.compareSwapped = !this.compareSwapped;

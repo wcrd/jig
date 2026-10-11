@@ -1638,3 +1638,8 @@ dialog.prompt input:focus {
     transform: rotate(360deg);
   }
 }
+
+.load-anyway {
+  display: inline-grid;
+  margin-top: 10px;
+}

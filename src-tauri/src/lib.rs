@@ -105,6 +105,32 @@ async fn compare_diff(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
+async fn file_diff(
+    path: String,
+    from: Option<String>,
+    to: String,
+    file_path: String,
+    source_path: Option<String>,
+    force: bool,
+    repos: State<'_, OpenRepos>,
+) -> Result<diff::FileDiff, String> {
+    let open = open_repo(&path, &repos).await?;
+    blocking(move || {
+        pollster::block_on(diff::file_diff(
+            &open.repo,
+            open.marker_style,
+            from.as_deref(),
+            &to,
+            &file_path,
+            source_path.as_deref(),
+            force,
+        ))
+    })
+    .await
+}
+
+#[tauri::command]
 async fn file_text(
     path: String,
     commit_id: String,
@@ -270,6 +296,7 @@ pub fn run() {
             load_log,
             commit_diff,
             compare_diff,
+            file_diff,
             file_text,
             tree_files,
             head_op_id,

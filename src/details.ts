@@ -37,6 +37,8 @@ const FILE_ICON = `<svg class="icon" viewBox="0 0 16 16" width="13" height="13">
 
 export interface DetailsSource {
   fileText(commitId: string, path: string): Promise<FileText>;
+  /** Diffs one file that was left out of the commit's diff. */
+  fileDiff(from: string | null, to: string, file: FileDiff, force: boolean): Promise<FileDiff>;
   treeFiles(commitId: string): Promise<TreeEntry[]>;
   /** Swap the direction of the current comparison. */
   swapCompare(): void;
@@ -453,6 +455,10 @@ export class DetailsPanel {
       this.el.view.innerHTML = "";
       return;
     }
+    if (file.omitted) {
+      this.renderOmitted(file);
+      return;
+    }
     const key = this.key(file.path);
     const expansion = this.expansions.get(key) ?? newExpansion();
     // Use the file's text only if it's already been fetched for expanding.
@@ -484,6 +490,38 @@ export class DetailsPanel {
     this.el.view.scrollLeft = resetScroll ? 0 : scrollLeft;
   }
 
+  /**
+   * A file left out of the commit's diff: load it now, unless it's over the
+   * size limit, in which case offer to.
+   */
+  private async renderOmitted(file: FileDiff, force = false) {
+    const header =
+      `<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${escapeHtml(file.path)}</span></div>`;
+    this.virtual.unmount();
+    if (file.tooLarge && !force) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      this.el.view.innerHTML =
+        header +
+        `<div class="placeholder-text">This file is ${mb} MB, so it wasn't diffed automatically; large files can take a while.` +
+        `<div><button class="header-button text load-anyway" data-action="force">Show Diff Anyway</button></div></div>`;
+      return;
+    }
+    this.el.view.innerHTML = header + `<div class="placeholder-text">Loading diff…</div>`;
+    const diff = this.diff;
+    const index = this.fileIndex;
+    try {
+      const loaded = await this.source.fileDiff(this.compareFrom?.commitId ?? null, this.row!.commitId, file, force);
+      // Store it in place so the cached commit diff keeps it.
+      if (diff?.files[index] === file) diff.files[index] = loaded;
+    } catch (err) {
+      if (this.diff === diff && this.fileIndex === index) this.showError(String(err));
+      return;
+    }
+    if (this.diff !== diff || this.fileIndex !== index || this.tab === "tree") return;
+    this.renderLeft();
+    this.renderDiff(true);
+  }
+
   /** Fills the view's `.diff-body` with virtually scrolled lines. */
   private showLines(lines: LineSet | { placeholder: string }) {
     const body = this.el.view.querySelector<HTMLElement>(".diff-body");
@@ -507,6 +545,10 @@ export class DetailsPanel {
     }
     const file = this.diff?.files[this.fileIndex];
     if (!file) return;
+    if (button.dataset.action === "force") {
+      this.renderOmitted(file, true);
+      return;
+    }
     const key = this.key(file.path);
     const expansion = this.expansions.get(key) ?? newExpansion();
     this.expansions.set(key, expansion);
