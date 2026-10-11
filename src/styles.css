@@ -593,6 +593,8 @@ body.resizing-columns * {
 }
 
 .ci-body {
+  /* A comfortable reading width (~100 characters of prose). */
+  max-width: 80ch;
   margin-top: 6px;
   white-space: pre-wrap;
   line-height: 1.4;
