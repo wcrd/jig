@@ -5,8 +5,10 @@
 import { fetchCompare, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
+import { Relations } from "./relations";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
+import { escapeHtml } from "./format";
 import { type MenuEntry, confirm, copy, prompt, runWithToast, showMenu } from "./ui";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
@@ -14,6 +16,23 @@ const OVERSCAN = 8;
 /** Wait this long after the selection settles before loading its diff. */
 const DETAILS_DELAY_MS = 40;
 const DIFF_CACHE_SIZE = 64;
+
+type RebaseMode = "revision" | "source" | "branch";
+type Placement = "onto" | "after" | "before";
+
+interface RebaseState {
+  source: number;
+  mode: RebaseMode;
+  placement: Placement;
+  target: number;
+}
+
+const MODE_LABELS: Record<RebaseMode, string> = {
+  revision: "This commit",
+  source: "With descendants",
+  branch: "Whole branch",
+};
+const PLACEMENT_LABELS: Record<Placement, string> = { onto: "onto", after: "after", before: "before" };
 
 export class RepoView {
   readonly root: HTMLElement;
@@ -31,6 +50,10 @@ export class RepoView {
   /** Compare from the upper commit to the lower instead of the reverse. */
   private compareSwapped = false;
   private compareCache = new Map<string, CompareDiff>();
+  private relations: Relations | null = null;
+  /** An in-progress rebase: what's moving and where to, picked before running. */
+  private rebase: RebaseState | null = null;
+  private modebar!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
   private loading = false;
   private frame = 0;
@@ -110,8 +133,13 @@ export class RepoView {
     new ResizeObserver(() => this.render()).observe(this.ref("list"));
     this.spacer.addEventListener("mousedown", (event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
-      if (!row) return;
+      if (!row || event.button !== 0) return;
       const index = Number(row.dataset.index);
+      if (this.rebase) {
+        // While rebasing, clicks pick the destination.
+        this.setRebaseTarget(index);
+        return;
+      }
       // ⌘-click picks a second commit to compare with the selected one.
       if (event.metaKey && this.selected >= 0) {
         this.setCompare(index === this.selected || index === this.compareIndex ? -1 : index);
@@ -119,11 +147,24 @@ export class RepoView {
         this.compareIndex = -1;
         this.select(index, false);
         this.scheduleDetails();
+        this.startDrag(event, index);
       }
+    });
+    this.modebar = this.ref("modebar");
+    this.modebar.addEventListener("click", (event) => {
+      const button = (event.target as HTMLElement).closest<HTMLElement>("button");
+      if (!button || !this.rebase) return;
+      if (button.dataset.mode) this.rebase.mode = button.dataset.mode as RebaseMode;
+      if (button.dataset.placement) this.rebase.placement = button.dataset.placement as Placement;
+      if (button.dataset.action === "run") return this.runRebase();
+      if (button.dataset.action === "cancel") return this.cancelRebase();
+      this.updateRebase();
     });
     this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
     this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
+    this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
+    this.ref("redo").addEventListener("click", () => this.act("Redo", () => jj.redo(this.path)));
     this.spacer.addEventListener("contextmenu", (event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
       if (!row) return;
@@ -158,6 +199,9 @@ export class RepoView {
       this.errorEl.hidden = true;
       this.log = next;
       this.graph = new Graph(next.rows, next.edges);
+      this.relations = new Relations(next.rows.length, next.edges);
+      this.rebase = null;
+      this.updateModebar();
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
       this.revsetInput.placeholder = next.defaultRevset;
       const previousCompare = this.compareIndex >= 0 ? this.log?.rows[this.compareIndex]?.changeId : null;
@@ -214,6 +258,13 @@ export class RepoView {
   /** Handles keys for the list; returns whether the key was used. */
   handleKey(event: KeyboardEvent): boolean {
     if (document.activeElement === this.revsetInput || !this.log) return false;
+    if (event.metaKey || event.ctrlKey) return false;
+    if (this.rebase) return this.handleRebaseKey(event);
+    // b rebases the selected commit; ⇧B brings its descendants along.
+    if ((event.key === "b" || event.key === "B") && this.selected >= 0) {
+      this.startRebase(this.selected, event.shiftKey ? "source" : "revision");
+      return true;
+    }
     // ⌥↑/⌥↓ step through the selected commit's files.
     if (event.altKey && (event.key === "ArrowDown" || event.key === "ArrowUp")) {
       this.details.moveFile(event.key === "ArrowDown" ? 1 : -1);
@@ -235,6 +286,194 @@ export class RepoView {
     if (!(event.key in moves)) return false;
     this.select(moves[event.key]);
     return true;
+  }
+
+  // Rebase: pick a commit with b / ⇧B (or by dragging it), choose where it
+  // goes, then run it. Nothing changes until Enter or the Rebase button.
+
+  private startRebase(source: number, mode: RebaseMode, target?: number) {
+    const rows = this.log!.rows;
+    this.rebase = {
+      source,
+      mode,
+      placement: "onto",
+      // Default to the commit's current parent's position: the row below.
+      target: target ?? Math.min(source + 1, rows.length - 1),
+    };
+    this.compareIndex = -1;
+    this.updateRebase();
+  }
+
+  private cancelRebase() {
+    this.rebase = null;
+    this.updateRebase();
+  }
+
+  private setRebaseTarget(index: number) {
+    if (!this.rebase) return;
+    this.rebase.target = Math.max(0, Math.min(this.log!.rows.length - 1, index));
+    const y = this.rebase.target * ROW_HEIGHT;
+    if (y < this.scroller.scrollTop) this.scroller.scrollTop = y;
+    else if (y + ROW_HEIGHT > this.scroller.scrollTop + this.scroller.clientHeight) {
+      this.scroller.scrollTop = y + ROW_HEIGHT - this.scroller.clientHeight;
+    }
+    this.updateRebase();
+  }
+
+  /** Rows the current rebase would move, as best the loaded graph shows. */
+  private movingRows(): Set<number> {
+    const r = this.rebase!;
+    const relations = this.relations!;
+    if (r.mode === "revision") return new Set([r.source]);
+    if (r.mode === "source") return relations.descendants([r.source]);
+    return relations.branch([r.source], r.target);
+  }
+
+  private rebaseProblem(): string | null {
+    const r = this.rebase!;
+    const rows = this.log!.rows;
+    const moving = this.movingRows();
+    if (moving.has(r.target) && !(r.mode === "revision" && r.target !== r.source)) {
+      return "Pick a destination outside the commits being moved";
+    }
+    if ([...moving].some((i) => rows[i].immutable)) return "Some of these commits are immutable";
+    return null;
+  }
+
+  private handleRebaseKey(event: KeyboardEvent): boolean {
+    const r = this.rebase!;
+    const page = Math.max(1, Math.floor(this.scroller.clientHeight / ROW_HEIGHT) - 1);
+    switch (event.key) {
+      case "ArrowDown":
+      case "j":
+        this.setRebaseTarget(r.target + 1);
+        return true;
+      case "ArrowUp":
+      case "k":
+        this.setRebaseTarget(r.target - 1);
+        return true;
+      case "PageDown":
+        this.setRebaseTarget(r.target + page);
+        return true;
+      case "PageUp":
+        this.setRebaseTarget(r.target - page);
+        return true;
+      case "b":
+        r.mode = "revision";
+        break;
+      case "B":
+        r.mode = "source";
+        break;
+      case "w":
+        r.mode = "branch";
+        break;
+      case "o":
+        r.placement = "onto";
+        break;
+      case "a":
+        r.placement = "after";
+        break;
+      case "A":
+        r.placement = "before";
+        break;
+      case "Enter":
+        this.runRebase();
+        return true;
+      case "Escape":
+        this.cancelRebase();
+        return true;
+      default:
+        // Swallow other keys so they don't act on the list mid-rebase.
+        return event.key.length === 1;
+    }
+    this.updateRebase();
+    return true;
+  }
+
+  private updateRebase() {
+    this.updateModebar();
+    this.clearRowState();
+    this.render();
+  }
+
+  /** Forces rows to refresh their classes on the next render. */
+  private clearRowState() {
+    for (const el of this.rendered.values()) el.dataset.placement = "";
+  }
+
+  private updateModebar() {
+    const r = this.rebase;
+    this.root.classList.toggle("rebasing", !!r);
+    if (!r || !this.log) {
+      this.modebar.hidden = true;
+      return;
+    }
+    const rows = this.log.rows;
+    const id = (i: number) => `<span class="id change-id">${rows[i].changeId.slice(0, 8)}</span>`;
+    const segment = <T extends string>(attr: string, value: T, current: T, label: string, key: string) =>
+      `<button class="${value === current ? "active" : ""}" data-${attr}="${value}" title="${key}">${label}</button>`;
+    const problem = this.rebaseProblem();
+    const count = this.movingRows().size;
+    this.modebar.hidden = false;
+    this.modebar.innerHTML =
+      `<span class="modebar-title">Rebase</span>` +
+      `<span class="segmented">` +
+      segment("mode", "revision", r.mode, MODE_LABELS.revision, "b") +
+      segment("mode", "source", r.mode, MODE_LABELS.source, "⇧B") +
+      segment("mode", "branch", r.mode, MODE_LABELS.branch, "w") +
+      `</span>${id(r.source)}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}` +
+      `<span class="segmented">` +
+      segment("placement", "onto", r.placement, PLACEMENT_LABELS.onto, "o") +
+      segment("placement", "after", r.placement, PLACEMENT_LABELS.after, "a") +
+      segment("placement", "before", r.placement, PLACEMENT_LABELS.before, "⇧A") +
+      `</span>${id(r.target)} <span class="modebar-summary">${escapeHtml(rows[r.target].summary || "(no description set)")}</span>` +
+      (problem ? `<span class="modebar-problem">${escapeHtml(problem)}</span>` : "") +
+      `<span class="modebar-actions"><span class="muted">↑↓ choose · Enter · Esc</span>` +
+      `<button data-action="cancel">Cancel</button><button data-action="run" class="primary"${problem ? " disabled" : ""}>Rebase</button></span>`;
+  }
+
+  private async runRebase() {
+    const r = this.rebase;
+    if (!r || this.rebaseProblem()) return;
+    const rows = this.log!.rows;
+    const source = rows[r.source];
+    const target = rows[r.target];
+    this.rebase = null;
+    this.updateRebase();
+    const flag = { onto: "onto", after: "after", before: "before" }[r.placement];
+    await this.act(
+      `Rebase ${source.changeId.slice(0, 8)} ${flag} ${target.changeId.slice(0, 8)}`,
+      () => jj.rebase(this.path, [source.commitId], r.mode, target.commitId, r.placement),
+      { undo: true },
+    );
+  }
+
+  /** Dragging a row onto another starts a rebase there (⇧ for descendants). */
+  private startDrag(down: MouseEvent, index: number) {
+    const startY = down.clientY;
+    let dragging = false;
+    const move = (e: MouseEvent) => {
+      if (!dragging && Math.abs(e.clientY - startY) < 6) return;
+      if (!dragging) {
+        dragging = true;
+        this.startRebase(index, e.shiftKey ? "source" : "revision", index);
+        this.root.classList.add("dragging");
+      }
+      const over = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>(".row");
+      if (over && this.rebase) {
+        this.rebase.mode = e.shiftKey ? "source" : e.altKey ? "branch" : "revision";
+        if (Number(over.dataset.index) !== this.rebase.target) this.setRebaseTarget(Number(over.dataset.index));
+        else this.updateRebase();
+      }
+    };
+    const up = () => {
+      window.removeEventListener("mousemove", move);
+      this.root.classList.remove("dragging");
+      // Dropping leaves the rebase ready to confirm, with the options visible.
+      if (dragging && this.rebase && this.rebase.target === this.rebase.source) this.cancelRebase();
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up, { once: true });
   }
 
   private setCompare(index: number) {
@@ -271,6 +510,7 @@ export class RepoView {
         this.rendered.delete(index);
       }
     }
+    const moving = this.rebase ? this.movingRows() : null;
     for (let i = first; i <= last; i++) {
       let el = this.rendered.get(i);
       if (!el) {
@@ -283,6 +523,9 @@ export class RepoView {
       }
       el.classList.toggle("selected", i === this.selected);
       el.classList.toggle("compare", i === this.compareIndex);
+      el.classList.toggle("rebase-moving", !!moving?.has(i));
+      el.classList.toggle("rebase-target", !!this.rebase && i === this.rebase.target);
+      el.dataset.placement = this.rebase && i === this.rebase.target ? this.rebase.placement : "";
     }
   }
 
@@ -365,8 +608,9 @@ export class RepoView {
   }
 
   /** Runs a jj command with a toast, then reloads to show its effect. */
-  private async act(label: string, run: () => Promise<CommandOutput>) {
-    await runWithToast(label, run);
+  private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean } = {}) {
+    const undo = options.undo ? () => this.act("Undo", () => jj.undo(this.path)) : undefined;
+    await runWithToast(label, run, undo);
     await this.load({ keepPosition: true });
   }
 

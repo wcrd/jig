@@ -51,6 +51,13 @@ export function prompt(title: string, label: string, initial = "", placeholder =
   document.body.appendChild(dialog);
   const input = dialog.querySelector("input")!;
   input.value = initial;
+  // Enter would otherwise submit with the form's first button, Cancel.
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      dialog.close("ok");
+    }
+  });
   return new Promise((resolve) => {
     dialog.addEventListener("close", () => {
       const value = dialog.returnValue === "ok" ? input.value.trim() : "";
@@ -73,7 +80,11 @@ const toasts = (() => {
  * Runs a jj command, showing a toast while it runs and with its result
  * afterwards. Failures stay until dismissed; successes fade out.
  */
-export async function runWithToast(label: string, run: () => Promise<CommandOutput>): Promise<boolean> {
+export async function runWithToast(
+  label: string,
+  run: () => Promise<CommandOutput>,
+  undo?: () => void,
+): Promise<boolean> {
   const toast = document.createElement("div");
   toast.className = "toast running";
   toast.innerHTML = `<div class="toast-title"><span class="spinner"></span>${escapeHtml(label)}…</div>`;
@@ -89,12 +100,18 @@ export async function runWithToast(label: string, run: () => Promise<CommandOutp
   toast.className = `toast ${output.success ? "success" : "failure"}`;
   toast.innerHTML =
     `<div class="toast-title">${output.success ? "✓" : "✕"} ${escapeHtml(label)}` +
+    (output.success && undo ? `<button class="toast-undo">Undo</button>` : "") +
     `<button class="toast-close" title="Dismiss">×</button></div>` +
     (output.command ? `<div class="toast-command">${escapeHtml(output.command)}</div>` : "") +
     (text ? `<pre class="toast-output">${escapeHtml(text)}</pre>` : "");
   const dismiss = () => toast.remove();
   toast.querySelector(".toast-close")!.addEventListener("click", dismiss);
-  if (output.success) setTimeout(dismiss, 5000);
+  toast.querySelector(".toast-undo")?.addEventListener("click", () => {
+    dismiss();
+    undo?.();
+  });
+  // Leave time to undo history changes.
+  if (output.success) setTimeout(dismiss, undo ? 10000 : 5000);
   return output.success;
 }
 

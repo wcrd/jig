@@ -82,4 +82,8 @@ export const jj = {
     invoke<CommandOutput>("jj_bookmark_track", { path, name, remote }),
   gitFetch: (path: string) => invoke<CommandOutput>("jj_git_fetch", { path }),
   gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),
+  rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>
+    invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement }),
+  undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
+  redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };

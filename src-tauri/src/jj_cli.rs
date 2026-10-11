@@ -89,6 +89,10 @@ pub fn run(root: &Path, args: &[&str]) -> Result<CommandOutput> {
         .current_dir(root)
         // There's no terminal to answer prompts, so fail rather than hang.
         .stdin(std::process::Stdio::null())
+        // If jj ever tries to launch an editor, give it a no-op instead of
+        // hanging the app waiting on one.
+        .env("JJ_EDITOR", "true")
+        .env("EDITOR", "true")
         .output()
         .with_context(|| format!("failed to run {}", jj.display()))?;
     Ok(CommandOutput {
@@ -129,6 +133,99 @@ pub fn validate_revision(revision: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_revisions(revisions: &[String]) -> Result<()> {
+    if revisions.is_empty() {
+        bail!("at least one revision is required");
+    }
+    revisions.iter().try_for_each(|r| validate_revision(r))
+}
+
+/// Pushes `flag value` for each revision.
+fn push_flagged(args: &mut Vec<String>, flag: &str, revisions: &[String]) {
+    for r in revisions {
+        args.push(flag.to_owned());
+        args.push(r.clone());
+    }
+}
+
+pub fn rebase_args(
+    revisions: &[String],
+    mode: &str,
+    target: &str,
+    placement: &str,
+) -> Result<Vec<String>> {
+    validate_revisions(revisions)?;
+    validate_revision(target)?;
+    let mode_flag = match mode {
+        "revision" => "--revision",
+        "source" => "--source",
+        "branch" => "--branch",
+        _ => bail!("unknown rebase mode: {mode:?}"),
+    };
+    let placement_flag = match placement {
+        "onto" => "--onto",
+        "after" => "--insert-after",
+        "before" => "--insert-before",
+        _ => bail!("unknown rebase placement: {placement:?}"),
+    };
+    let mut args = strings(&["rebase"]);
+    push_flagged(&mut args, mode_flag, revisions);
+    args.push(placement_flag.to_owned());
+    args.push(target.to_owned());
+    Ok(args)
+}
+
+/// `jj <command> <revisions…>`, for commands taking revsets positionally.
+pub fn revisions_args(command: &str, revisions: &[String]) -> Result<Vec<String>> {
+    validate_revisions(revisions)?;
+    let mut args = strings(&[command]);
+    args.extend(revisions.iter().cloned());
+    Ok(args)
+}
+
+pub fn edit_args(revision: &str) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    Ok(strings(&["edit", revision]))
+}
+
+pub fn describe_args(revision: &str, message: &str) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    // `--message=<text>` so text starting with `-` isn't read as a flag.
+    Ok(vec![
+        "describe".to_owned(),
+        format!("--message={message}"),
+        revision.to_owned(),
+    ])
+}
+
+pub fn absorb_args(revision: &str) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    Ok(strings(&["absorb", "--from", revision]))
+}
+
+pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    validate_revision(into)?;
+    for p in paths {
+        if p.is_empty() || p.starts_with('-') {
+            bail!("invalid path: {p:?}");
+        }
+    }
+    let mut args = strings(&[
+        "squash",
+        "--from",
+        revision,
+        "--into",
+        into,
+        "--use-destination-message",
+    ]);
+    if !paths.is_empty() {
+        args.push("--".to_owned());
+        args.extend(paths.iter().cloned());
+    }
+    Ok(args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +262,104 @@ mod tests {
                 let bad = run(&dir, &["bookmark", "delete", "nope"]).unwrap();
                 assert!(!bad.success);
             }
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn v(xs: &[&str]) -> Vec<String> {
+        strings(xs)
+    }
+
+    #[test]
+    fn rebase_arg_building() {
+        assert_eq!(
+            rebase_args(&v(&["a1", "b2"]), "revision", "c3", "onto").unwrap(),
+            v(&["rebase", "--revision", "a1", "--revision", "b2", "--onto", "c3"])
+        );
+        assert_eq!(
+            rebase_args(&v(&["a1"]), "source", "c3", "after").unwrap(),
+            v(&["rebase", "--source", "a1", "--insert-after", "c3"])
+        );
+        assert_eq!(
+            rebase_args(&v(&["a1"]), "branch", "c3", "before").unwrap(),
+            v(&["rebase", "--branch", "a1", "--insert-before", "c3"])
+        );
+        assert!(rebase_args(&[], "revision", "c3", "onto").is_err());
+        assert!(rebase_args(&v(&["a1"]), "x", "c3", "onto").is_err());
+        assert!(rebase_args(&v(&["a1"]), "revision", "c3", "x").is_err());
+        assert!(rebase_args(&v(&["@"]), "revision", "c3", "onto").is_err());
+        assert!(rebase_args(&v(&["a1"]), "revision", "main", "onto").is_err());
+    }
+
+    #[test]
+    fn simple_arg_building() {
+        assert_eq!(revisions_args("new", &v(&["a1", "b2"])).unwrap(), v(&["new", "a1", "b2"]));
+        assert!(revisions_args("abandon", &[]).is_err());
+        assert!(revisions_args("duplicate", &v(&["zz"])).is_err());
+        assert_eq!(edit_args("a1").unwrap(), v(&["edit", "a1"]));
+        assert!(edit_args("@").is_err());
+        assert_eq!(absorb_args("a1").unwrap(), v(&["absorb", "--from", "a1"]));
+        assert!(absorb_args("").is_err());
+    }
+
+    #[test]
+    fn describe_arg_building() {
+        assert_eq!(
+            describe_args("a1", "-x\nline 2 \"q\" $HOME").unwrap(),
+            vec!["describe".to_owned(), "--message=-x\nline 2 \"q\" $HOME".to_owned(), "a1".to_owned()]
+        );
+        assert_eq!(describe_args("a1", "").unwrap()[1], "--message=");
+        assert!(describe_args("nope", "m").is_err());
+    }
+
+    #[test]
+    fn squash_arg_building() {
+        assert_eq!(
+            squash_args("a1", "b2", &[]).unwrap(),
+            v(&["squash", "--from", "a1", "--into", "b2", "--use-destination-message"])
+        );
+        assert_eq!(
+            squash_args("a1", "b2", &v(&["src/x.rs"])).unwrap(),
+            v(&["squash", "--from", "a1", "--into", "b2", "--use-destination-message", "--", "src/x.rs"])
+        );
+        assert!(squash_args("a1", "b2", &v(&["-x"])).is_err());
+        assert!(squash_args("a1", "b2", &v(&[""])).is_err());
+        assert!(squash_args("a1", "main", &[]).is_err());
+    }
+
+    #[test]
+    fn rebase_and_undo_in_a_throwaway_repo() {
+        let dir = std::env::temp_dir().join(format!("jork-cli-rebase-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let ok = matches!(run(&dir, &["git", "init"]), Ok(o) if o.success);
+        if ok {
+            let commit_id = |rev: &str| {
+                let o = run(&dir, &["log", "--no-graph", "-r", rev, "-T", "commit_id"]).unwrap();
+                assert!(o.success, "{}", o.stderr);
+                o.stdout.trim().to_owned()
+            };
+            let go = |args: Vec<String>| {
+                let a: Vec<&str> = args.iter().map(String::as_str).collect();
+                let o = run(&dir, &a).unwrap();
+                assert!(o.success, "{}: {}", o.command, o.stderr);
+            };
+            go(describe_args(&commit_id("@"), "first").unwrap());
+            go(revisions_args("new", &[commit_id("@")]).unwrap());
+            go(describe_args(&commit_id("@"), "second\nbody").unwrap());
+            let second = commit_id("@");
+            let first = commit_id("@-");
+            // Rebase `second` onto the root's child sibling: make a sibling of `first`.
+            go(revisions_args("new", &[commit_id("root()")]).unwrap());
+            go(describe_args(&commit_id("@"), "third").unwrap());
+            let third = commit_id("@");
+            let before = commit_id(&format!("parents({second})"));
+            assert_eq!(before, first);
+            go(rebase_args(&[second.clone()], "source", &third, "onto").unwrap());
+            let after = run(&dir, &["log", "--no-graph", "-r", "description(substring:'second')", "-T", "parents.map(|p| p.description().first_line())"]).unwrap();
+            assert_eq!(after.stdout.trim(), "third");
+            go(strings(&["undo"]));
+            let undone = run(&dir, &["log", "--no-graph", "-r", "description(substring:'second')", "-T", "parents.map(|p| p.description().first_line())"]).unwrap();
+            assert_eq!(undone.stdout.trim(), "first");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

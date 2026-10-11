@@ -1693,3 +1693,125 @@ dialog.prompt input:focus {
 .tab-context .header-button {
   flex: none;
 }
+
+/* Rebase mode */
+
+.modebar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 4px 10px;
+  background: color-mix(in srgb, var(--lane-5) 12%, var(--toolbar-bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--lane-5) 35%, var(--border));
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.modebar-title {
+  font-weight: 700;
+}
+
+.segmented {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.segmented button {
+  padding: 2px 8px;
+  border: none;
+  border-right: 1px solid var(--border);
+  background: none;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.segmented button:last-child {
+  border-right: none;
+}
+
+.segmented button.active {
+  background: var(--lane-5);
+  color: #fff;
+}
+
+.modebar-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modebar-problem {
+  color: var(--conflict);
+}
+
+.modebar-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.modebar-actions button {
+  padding: 2px 12px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg);
+}
+
+.modebar-actions button.primary {
+  border-color: var(--lane-5);
+  background: var(--lane-5);
+  color: #fff;
+}
+
+.modebar-actions button[disabled] {
+  opacity: 0.45;
+}
+
+.row.rebase-moving {
+  --node-bg: color-mix(in srgb, var(--lane-5) 10%, var(--bg));
+  background: color-mix(in srgb, var(--lane-5) 10%, var(--bg));
+}
+
+.row.rebase-moving .summary {
+  font-style: italic;
+}
+
+/* The destination: outlined for "onto", a bar where it'll be inserted for
+   after (above the target) or before (below it). */
+.row.rebase-target {
+  box-shadow: inset 0 0 0 2px var(--lane-5);
+}
+
+.row.rebase-target[data-placement="after"] {
+  box-shadow: inset 0 3px 0 var(--lane-5);
+}
+
+.row.rebase-target[data-placement="before"] {
+  box-shadow: inset 0 -3px 0 var(--lane-5);
+}
+
+.repo-view.dragging,
+.repo-view.dragging * {
+  cursor: grabbing !important;
+}
+
+.toast-undo {
+  margin-left: auto;
+  padding: 1px 10px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--toolbar-bg);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.toast-undo + .toast-close {
+  margin-left: 4px;
+}

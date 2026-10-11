@@ -261,6 +261,77 @@ async fn jj_git_push(
     .await
 }
 
+#[tauri::command]
+async fn jj_rebase(
+    path: String,
+    revisions: Vec<String>,
+    mode: String,
+    target: String,
+    placement: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::rebase_args(&revisions, &mode, &target, &placement)
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_undo(path: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, || Ok(jj_cli::strings(&["undo"]))).await
+}
+
+#[tauri::command]
+async fn jj_redo(path: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, || Ok(jj_cli::strings(&["redo"]))).await
+}
+
+#[tauri::command]
+async fn jj_new(path: String, parents: Vec<String>) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::revisions_args("new", &parents)).await
+}
+
+#[tauri::command]
+async fn jj_edit(path: String, revision: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::edit_args(&revision)).await
+}
+
+#[tauri::command]
+async fn jj_abandon(path: String, revisions: Vec<String>) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::revisions_args("abandon", &revisions)).await
+}
+
+#[tauri::command]
+async fn jj_describe(
+    path: String,
+    revision: String,
+    message: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::describe_args(&revision, &message)).await
+}
+
+#[tauri::command]
+async fn jj_duplicate(
+    path: String,
+    revisions: Vec<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::revisions_args("duplicate", &revisions)).await
+}
+
+#[tauri::command]
+async fn jj_absorb(path: String, revision: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::absorb_args(&revision)).await
+}
+
+#[tauri::command]
+async fn jj_squash(
+    path: String,
+    revision: String,
+    into: String,
+    paths: Vec<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::squash_args(&revision, &into, &paths)).await
+}
+
 #[derive(serde::Serialize)]
 struct InitialRepo {
     path: String,
@@ -306,7 +377,17 @@ pub fn run() {
             jj_bookmark_delete,
             jj_bookmark_track,
             jj_git_fetch,
-            jj_git_push
+            jj_git_push,
+            jj_rebase,
+            jj_undo,
+            jj_redo,
+            jj_new,
+            jj_edit,
+            jj_abandon,
+            jj_describe,
+            jj_duplicate,
+            jj_absorb,
+            jj_squash
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
