@@ -121,14 +121,13 @@ export class Graph {
     const toRow = edge.toRow;
     const xt = g.laneX(edge.toLane);
     const y1 = toRow === null ? this.rows.length * ROW_HEIGHT : g.rowY(toRow);
-    const adjacent = toRow !== null && toRow === edge.fromRow + 1;
     const bendsOut = xe !== x0;
     const bendsIn = toRow !== null && xt !== xe;
 
-    // Corners are tight, except a single bend between adjacent rows sweeps the
-    // whole row, like a line from a branch's first commit to its base.
-    let rOut = bendsOut ? Math.min(Math.abs(xe - x0), adjacent && !bendsIn ? ROW_HEIGHT : CORNER) : 0;
-    let rIn = bendsIn ? Math.min(Math.abs(xt - xe), adjacent && !bendsOut ? ROW_HEIGHT : CORNER) : 0;
+    // Every bend uses the same tight corner, so lines converging on a commit
+    // look alike however far they've come.
+    let rOut = bendsOut ? Math.min(Math.abs(xe - x0), CORNER) : 0;
+    let rIn = bendsIn ? Math.min(Math.abs(xt - xe), CORNER) : 0;
     const span = y1 - y0;
     if (rOut + rIn > span) {
       const scale = span / (rOut + rIn);
