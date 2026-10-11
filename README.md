@@ -1,13 +1,8 @@
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/jig-dark.svg">
-    <img src="docs/logo/jig-light.svg" alt="jig" width="140">
-  </picture>
-</p>
-
-# Jig
+# Jig - GUI for JJ
 
 A desktop GUI for [Jujutsu](https://github.com/jj-vcs/jj), built with Tauri and `jj-lib`.
+
+![Commit graph with a file diff](docs/screenshots/main.png)
 
 Inspired by `jjui` and `Fork (git)`.
 
@@ -19,7 +14,6 @@ For 90% of my `jj` workflows `jjui` is my go to tool. But there are two things t
 
 While I built this for the 2 reasons above, `jig` also supports most of the other `jj` operations and uses the same keybindings as `jjui`.
 
-![Commit graph with a file diff](docs/screenshots/main.png)
 
 
 ## Features
@@ -29,7 +23,7 @@ While I built this for the 2 reasons above, `jig` also supports most of the othe
 - New, describe, squash, split, rebase, abandon, revert and cherry-pick, with undo/redo
 - Fetch, push and bookmark management
 - Oplog viewer
-- Keyboard-driven (press `?` for shortcuts)
+- `jjui` key bindings (press `?` for shortcuts)
 
 ### Conflict resolver
 
