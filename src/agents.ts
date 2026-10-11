@@ -1,13 +1,28 @@
 // Recognises AI coding agents among commit authors, and their icons.
 
 import {
+  siAmp,
   siClaude,
+  siCline,
   siCursor,
+  siDeepseek,
   siGithubcopilot,
+  siGitlab,
+  siGoogle,
   siGooglegemini,
+  siHuggingface,
+  siJetbrains,
+  siKimi,
+  siMetaai,
+  siMinimax,
   siMistralai,
   siOllama,
+  siOpenrouter,
   siPerplexity,
+  siQwen,
+  siReplit,
+  siV0,
+  siWarp,
   siWindsurf,
 } from "simple-icons";
 
@@ -76,13 +91,103 @@ const AGENTS: Agent[] = [
     matches: (n) => /ollama/i.test(n),
   },
   {
-    // OpenAI's logo isn't in simple-icons, so Codex and ChatGPT get the
-    // sparkle, as do other agents we can recognise by name.
+    name: "DeepSeek",
+    path: siDeepseek.path,
+    color: `#${siDeepseek.hex}`,
+    matches: (n, e) => /deepseek/i.test(n) || /@deepseek\.com$/.test(e),
+  },
+  {
+    name: "Qwen",
+    path: siQwen.path,
+    color: `#${siQwen.hex}`,
+    matches: (n, e) => /\bqwen/i.test(n) || /@(alibaba-inc|aliyun)\.com$/.test(e),
+  },
+  {
+    name: "Kimi",
+    path: siKimi.path,
+    color: null,
+    matches: (n, e) => /\b(kimi|moonshot)\b/i.test(n) || /@moonshot\.(ai|cn)$/.test(e),
+  },
+  {
+    name: "MiniMax",
+    path: siMinimax.path,
+    color: `#${siMinimax.hex}`,
+    matches: (n) => /\bminimax\b/i.test(n),
+  },
+  {
+    name: "Meta AI",
+    path: siMetaai.path,
+    color: `#${siMetaai.hex}`,
+    matches: (n) => /\b(llama|meta ai)\b/i.test(n),
+  },
+  {
+    name: "Jules",
+    path: siGoogle.path,
+    color: `#${siGoogle.hex}`,
+    matches: (n, e) => /^jules\b/i.test(n) || /jules.*@google\.com$/.test(e),
+  },
+  {
+    name: "Junie",
+    path: siJetbrains.path,
+    color: null,
+    matches: (n, e) => /\bjunie\b/i.test(n) || /junie.*@jetbrains\.com$/.test(e),
+  },
+  {
+    name: "Replit Agent",
+    path: siReplit.path,
+    color: `#${siReplit.hex}`,
+    matches: (n, e) => /replit/i.test(n) || /@replit\.com$/.test(e),
+  },
+  {
+    name: "Amp",
+    path: siAmp.path,
+    color: `#${siAmp.hex}`,
+    matches: (n, e) => /^amp\b/i.test(n) || /@(ampcode|sourcegraph)\.com$/.test(e),
+  },
+  {
+    name: "Cline",
+    path: siCline.path,
+    color: null,
+    matches: (n, e) => /^cline\b/i.test(n) || /@cline\.bot$/.test(e),
+  },
+  {
+    name: "Warp",
+    path: siWarp.path,
+    color: `#${siWarp.hex}`,
+    matches: (n, e) => /^warp\b/i.test(n) || /@warp\.dev$/.test(e),
+  },
+  {
+    name: "v0",
+    path: siV0.path,
+    color: null,
+    matches: (n, e) => /^v0\b/i.test(n) || /v0.*@vercel\.com$/.test(e),
+  },
+  {
+    name: "GitLab Duo",
+    path: siGitlab.path,
+    color: `#${siGitlab.hex}`,
+    matches: (n) => /gitlab duo/i.test(n),
+  },
+  {
+    name: "Hugging Face",
+    path: siHuggingface.path,
+    color: `#${siHuggingface.hex}`,
+    matches: (n) => /hugging ?face/i.test(n),
+  },
+  {
+    name: "OpenRouter",
+    path: siOpenrouter.path,
+    color: `#${siOpenrouter.hex}`,
+    matches: (n) => /openrouter/i.test(n),
+  },
+  {
+    // OpenAI's logo isn't in simple-icons (removed at their request), so
+    // Codex and ChatGPT get the sparkle, as do other agents recognised by name.
     name: "AI",
     path: SPARKLE,
     color: "#10a37f",
     matches: (n, e) =>
-      /@openai\.com$/.test(e) || /\b(codex|chatgpt|gpt-\d|openai|devin|aider|amp|jules|junie|opencode)\b/i.test(n),
+      /@openai\.com$/.test(e) || /\b(codex|chatgpt|gpt-\d|openai|devin|aider|opencode|goose|augment|tabnine|cody)\b/i.test(n),
   },
 ];
 
