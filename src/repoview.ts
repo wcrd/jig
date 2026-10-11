@@ -7,6 +7,7 @@ import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { OpLogPanel } from "./oplog";
 import { Relations } from "./relations";
+import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
 import { escapeHtml } from "./format";
@@ -68,6 +69,9 @@ export class RepoView {
   private details: DetailsPanel;
   private sidebar: Sidebar;
   private oplog: OpLogPanel;
+  private resolver: ResolveView;
+  /** The change being resolved; its commit changes with every resolution. */
+  private resolving: LogRow | null = null;
 
   private scroller: HTMLElement;
   private spacer: HTMLElement;
@@ -106,9 +110,7 @@ export class RepoView {
         treeFiles: (commitId) => fetchTreeFiles(this.path, commitId),
         fileMenu: (path) => this.fileMenu(path),
         splitChanged: () => this.updateModebar(),
-        conflictHunks: (commitId, filePath) => fetchConflictHunks(this.path, commitId, filePath),
-        resolveConflict: (filePath, content) => this.resolveConflict(filePath, (row) => jj.resolve(this.path, row.commitId, filePath, content)),
-        resolveSide: (filePath, side) => this.resolveConflict(filePath, (row) => jj.resolveSide(this.path, row.commitId, filePath, side)),
+        openResolve: (filePath, conflicts) => this.openResolve(filePath, conflicts),
         swapCompare: () => {
           this.compareSwapped = !this.compareSwapped;
           this.scheduleDetails();
@@ -137,6 +139,15 @@ export class RepoView {
         this.selectCommit(commitId, "That commit");
       },
     );
+
+    this.resolver = new ResolveView(this.ref("resolve"), {
+      loadConflict: (commitId, filePath) => fetchConflictHunks(this.path, commitId, filePath),
+      resolve: (filePath, content) =>
+        this.resolveConflict(filePath, (row) => jj.resolve(this.path, row.commitId, filePath, content)),
+      takeSide: (filePath, side) =>
+        this.resolveConflict(filePath, (row) => jj.resolveSide(this.path, row.commitId, filePath, side)),
+      close: () => this.closeResolve(),
+    });
 
     this.sidebar = new Sidebar(this.ref("sidebar"), {
       select: (item) => this.selectCommit(item.commitId, item.name),
@@ -295,20 +306,18 @@ export class RepoView {
   handleKey(event: KeyboardEvent): boolean {
     // Typing in any text field (revset, prompts, the message editor, the
     // merge result) must never trigger single-key commands.
-    const focused = event.target as HTMLElement | null;
+    const focused = event.target instanceof Element ? event.target : null;
     if (focused?.closest("input, textarea, select, [contenteditable]") || !this.log) return false;
     if (event.metaKey || event.ctrlKey) return false;
     if (this.oplog.visible) {
       if (event.key === "Escape") this.oplog.hide();
       return event.key === "Escape";
     }
-    // The merge editor owns the keyboard: n / p move between conflicts.
-    if (this.details.merging) {
-      if (event.key === "n" || event.key === "p") {
-        this.details.mergeJump(event.key === "n" ? 1 : -1);
-        return true;
-      }
-      return event.key.length === 1;
+    // The resolver owns the keyboard: n / p move between conflicts.
+    if (this.resolver.visible) {
+      if (event.key === "Escape") this.closeResolve();
+      else if (event.key === "n" || event.key === "p") this.resolver.jump(event.key === "n" ? 1 : -1);
+      return event.key === "Escape" || event.key.length === 1;
     }
     if (this.pending) return this.handlePendingKey(event);
     if (this.handleCommandKey(event)) return true;
@@ -609,10 +618,46 @@ export class RepoView {
     }
   }
 
-  private resolveConflict(filePath: string, run: (row: LogRow) => Promise<CommandOutput>) {
+  /** Takes over the workspace to resolve the selected commit's conflicts. */
+  private openResolve(filePath: string, conflicts: string[]) {
     const row = this.log?.rows[this.selected];
     if (!row) return;
-    this.act(`Resolve ${filePath}`, () => run(row), { undo: true });
+    this.oplog.hide();
+    this.resolving = row;
+    this.root.classList.add("showing-resolve");
+    this.resolver.open(row, conflicts, filePath);
+  }
+
+  private closeResolve() {
+    const row = this.resolving;
+    this.resolving = null;
+    this.resolver.hide();
+    this.root.classList.remove("showing-resolve");
+    if (row) this.selectCommit(this.log?.rows.find((r) => r.changeId === row.changeId)?.commitId ?? null, row.changeId.slice(0, 8));
+    this.render();
+  }
+
+  /**
+   * Runs a resolution, then follows the change to its rewritten commit and
+   * carries on with whatever is still conflicted, closing when nothing is.
+   */
+  private async resolveConflict(filePath: string, run: (row: LogRow) => Promise<CommandOutput>) {
+    const row = this.resolving;
+    if (!row) return;
+    const ok = await runWithToast(`Resolve ${filePath}`, () => run(row), () => this.act("Undo", () => jj.undo(this.path)));
+    await this.load({ keepPosition: true });
+    if (!ok || !this.resolving) return;
+    const next = this.log?.rows.find((r) => r.changeId === row.changeId);
+    if (!next) return this.closeResolve();
+    let conflicts: string[] = [];
+    try {
+      conflicts = (await fetchDiff(this.path, next.commitId)).conflicts;
+    } catch {
+      // Treat as done; the graph shows any conflict that's left.
+    }
+    this.resolving = next;
+    if (conflicts.length === 0) return this.closeResolve();
+    this.resolver.update(next, conflicts, undefined, filePath);
   }
 
   private async editSplitMessage() {

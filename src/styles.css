@@ -2480,7 +2480,95 @@ dialog.prompt textarea:focus {
   margin-top: 10px;
 }
 
-.details-body.merging > .info-pane,
-.details-body.merging > [data-ref="split-info"] {
+/* Resolving conflicts takes over the workspace, like the op log. */
+.repo-view.showing-resolve .repo-body > .workspace,
+.repo-view.showing-resolve .repo-body > .oplog {
   display: none;
+}
+
+.takeover {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  padding: 14px;
+  background: color-mix(in srgb, var(--toolbar-bg) 70%, var(--text) 6%);
+}
+
+.takeover[hidden] {
+  display: none;
+}
+
+.takeover-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.06);
+}
+
+.takeover-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.takeover-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 13.5px;
+}
+
+.takeover-title .muted {
+  font-weight: normal;
+}
+
+.resolve-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.resolve-files {
+  flex: none;
+  width: 240px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+  background: var(--panel-bg);
+}
+
+.resolve-files .tree-row {
+  padding-left: 12px;
+}
+
+.resolve-files .tree-row.done .name {
+  color: var(--muted);
+}
+
+.resolve-pane {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.resolve-pane > .merge {
+  flex: 1;
+  min-height: 0;
+}
+
+.merge-header .diff-path {
+  flex: 0 1 auto;
+  min-width: 80px;
 }

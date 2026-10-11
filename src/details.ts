@@ -13,11 +13,9 @@ import {
   splitLines,
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
-import { type ConflictFile, MergeEditor, type MergeLayout } from "./mergeview";
 import { type LineSet, VirtualLines } from "./virtual";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { agentBadge, avatarHtml } from "./agents";
-import { storage } from "./api";
 import { escapeHtml, formatFullDate, reflowMessage } from "./format";
 import type { CommitDiff, CompareDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
@@ -49,12 +47,8 @@ export interface DetailsSource {
   treeFiles(commitId: string): Promise<TreeEntry[]>;
   /** Right-click on a changed file (not in compare mode). */
   fileMenu(path: string): void;
-  /** Reads a conflicted file as merged regions and conflict blocks. */
-  conflictHunks(commitId: string, path: string): Promise<ConflictFile>;
-  /** Resolves a conflicted file in the shown commit with the given content. */
-  resolveConflict(path: string, content: string): void;
-  /** Resolves a conflicted file by taking one whole side. */
-  resolveSide(path: string, side: "ours" | "theirs"): void;
+  /** Opens the conflict resolver on the shown commit, at `path`. */
+  openResolve(path: string, conflicts: string[]): void;
   /** The split selection changed. */
   splitChanged(): void;
   /** Swap the direction of the current comparison. */
@@ -91,8 +85,7 @@ export class DetailsPanel {
   private fileIndex = 0;
   /** A conflicted file being viewed instead of a diff. */
   private conflictPath: string | null = null;
-  /** The merge editor, while resolving `conflictPath`. */
-  private merge: MergeEditor | null = null;
+
   private fileOrder: number[] = [];
   private changesCollapsed = new Set<string>();
   private changesTree: TreeNode | null = null;
@@ -614,8 +607,6 @@ export class DetailsPanel {
   // Right side: the diff, or a file from the repository tree.
 
   private renderRight() {
-    this.merge = null;
-    this.el.body.classList.remove("merging");
     if (this.tab === "commit") return;
     if (this.tab === "tree") this.renderTreeFile();
     else if (this.conflictPath) this.renderConflict(this.conflictPath);
@@ -715,46 +706,6 @@ export class DetailsPanel {
     this.renderDiff(true);
   }
 
-  /** Whether the merge editor is open, so the list's single-key commands stay off. */
-  get merging(): boolean {
-    return this.merge !== null;
-  }
-
-  mergeJump(delta: 1 | -1) {
-    this.merge?.jump(delta);
-  }
-
-  private async openMerge(path: string) {
-    const row = this.row!;
-    this.virtual.unmount();
-    this.el.view.innerHTML = `<div class="placeholder-text">Loading conflict…</div>`;
-    let file: ConflictFile;
-    try {
-      file = await this.source.conflictHunks(row.commitId, path);
-    } catch (err) {
-      this.showError(String(err));
-      return;
-    }
-    if (this.row !== row || this.conflictPath !== path) return;
-    if (!file.supported) {
-      this.el.view.innerHTML = `<div class="placeholder-text">This conflict has more than two sides or isn't a text file, so it can't be merged here.
-        <div class="merge-fallback"><button class="header-button text" data-side="ours">Take All of Side 1</button><button class="header-button text" data-side="theirs">Take All of Side 2</button></div></div>`;
-      this.el.view.querySelectorAll<HTMLElement>("[data-side]").forEach((b) =>
-        b.addEventListener("click", () => this.source.resolveSide(path, b.dataset.side as "ours" | "theirs")),
-      );
-      return;
-    }
-    const layout = (storage("mergeLayout") as MergeLayout | null) ?? "columns";
-    // The merge editor gets the panel's full width.
-    this.el.body.classList.add("merging");
-    this.merge = new MergeEditor(this.el.view, path, file, layout, {
-      resolve: (content) => this.source.resolveConflict(path, content),
-      takeSide: (side) => this.source.resolveSide(path, side),
-      cancel: () => this.renderConflict(path),
-      layoutChanged: (next) => storage("mergeLayout", next),
-    });
-  }
-
   /** A conflicted file, with jj's conflict markers highlighted. */
   private async renderConflict(path: string) {
     const row = this.row;
@@ -764,8 +715,6 @@ export class DetailsPanel {
       `<span class="pill flag conflict"><span class="label">unresolved conflict</span></span>` +
       (this.compareFrom ? "" : `<span class="header-buttons"><button class="header-button text primary" data-action="resolve-conflict">Resolve…</button></span>`) +
       `</div>`;
-    this.merge = null;
-    this.el.body.classList.remove("merging");
     this.el.view.innerHTML = header + `<div class="placeholder-text">Loading…</div>`;
     let text: FileText;
     try {
@@ -803,7 +752,7 @@ export class DetailsPanel {
 
   private async onViewButton(button: HTMLElement) {
     if (button.dataset.action === "resolve-conflict" && this.conflictPath) {
-      this.openMerge(this.conflictPath);
+      this.source.openResolve(this.conflictPath, this.diff?.conflicts ?? [this.conflictPath]);
       return;
     }
     if (this.tab === "tree") {
