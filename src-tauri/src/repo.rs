@@ -65,6 +65,8 @@ pub struct LogRow {
     pub has_body: bool,
     pub author_name: String,
     pub author_email: String,
+    /// From `Co-Authored-By:` trailers.
+    pub coauthors: Vec<Coauthor>,
     /// Committer timestamp in milliseconds, which is what `jj log` shows.
     pub timestamp: i64,
     pub parent_count: usize,
@@ -80,6 +82,33 @@ pub struct LogRow {
     pub refs: Vec<RefLabel>,
     pub lane: u32,
     pub width: u32,
+}
+
+#[derive(Serialize, Clone)]
+pub struct Coauthor {
+    pub name: String,
+    pub email: String,
+}
+
+/// Co-authors from the description's `Co-Authored-By: Name <email>` trailers.
+pub fn coauthors(description: &str) -> Vec<Coauthor> {
+    jj_lib::trailer::parse_description_trailers(description)
+        .into_iter()
+        .filter(|t| t.key.eq_ignore_ascii_case("co-authored-by"))
+        .map(|t| {
+            let value = t.value.trim();
+            match value.rsplit_once('<') {
+                Some((name, email)) => Coauthor {
+                    name: name.trim().to_owned(),
+                    email: email.trim_end_matches('>').trim().to_owned(),
+                },
+                None => Coauthor {
+                    name: value.to_owned(),
+                    email: String::new(),
+                },
+            }
+        })
+        .collect()
 }
 
 #[derive(Serialize, Clone)]
@@ -423,6 +452,7 @@ async fn load_log_async(
             has_body: !body.trim().is_empty(),
             author_name: commit.author().name.clone(),
             author_email: commit.author().email.clone(),
+            coauthors: coauthors(commit.description()),
             timestamp: commit.committer().timestamp.timestamp.0,
             parent_count: commit.parent_ids().len(),
             is_working_copy: wc_id.as_ref() == Some(commit.id()),
@@ -538,4 +568,22 @@ fn ref_index(repo: &ReadonlyRepo) -> HashMap<CommitId, Vec<RefLabel>> {
     }
 
     index
+}
+
+#[cfg(test)]
+mod tests {
+    use super::coauthors;
+
+    #[test]
+    fn parses_co_authored_by_trailers() {
+        let found = coauthors(
+            "Fix it\n\nBody text.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nco-authored-by: Sam <sam@example.com>\n",
+        );
+        let pairs: Vec<_> = found.iter().map(|c| (c.name.as_str(), c.email.as_str())).collect();
+        assert_eq!(
+            pairs,
+            [("Claude Opus 5.5", "noreply@anthropic.com"), ("Sam", "sam@example.com")]
+        );
+        assert!(coauthors("Just a summary").is_empty());
+    }
 }

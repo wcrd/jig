@@ -25,6 +25,7 @@ export interface LogRow {
   hasBody: boolean;
   authorName: string;
   authorEmail: string;
+  coauthors: { name: string; email: string }[];
   timestamp: number;
   parentCount: number;
   isWorkingCopy: boolean;

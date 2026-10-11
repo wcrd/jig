@@ -1202,3 +1202,62 @@ body.resizing-columns * {
 body > .empty {
   top: 33px;
 }
+
+/* Co-authors and AI agents */
+
+.avatars {
+  flex: none;
+  display: flex;
+}
+
+/* Co-author avatars overlap the author's, ringed to separate them. */
+.avatars .avatar + .avatar {
+  margin-left: -5px;
+  box-shadow: 0 0 0 1.5px var(--node-bg, var(--bg));
+}
+
+.avatar.agent {
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text);
+}
+
+.avatar.agent svg {
+  width: 70%;
+  height: 70%;
+}
+
+.avatars .avatar.agent + .avatar,
+.avatars .avatar + .avatar.agent {
+  box-shadow: 0 0 0 1.5px var(--node-bg, var(--bg)), inset 0 0 0 1px var(--border);
+}
+
+.avatar.medium {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  font-size: 9px;
+}
+
+.coauthors {
+  color: var(--muted);
+}
+
+.ci-person.coauthor {
+  margin-top: 6px;
+  padding-left: 4px;
+}
+
+.agent-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: var(--selected);
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  letter-spacing: 0.3px;
+  vertical-align: 1px;
+}

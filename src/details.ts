@@ -14,7 +14,8 @@ import {
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
 import { highlightCached, languageFor, type Segment } from "./highlight";
-import { avatarHue, escapeHtml, formatFullDate, initials, reflowMessage } from "./format";
+import { agentBadge, avatarHtml } from "./agents";
+import { escapeHtml, formatFullDate, reflowMessage } from "./format";
 import type { CommitDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
 export type DetailsTab = "commit" | "changes" | "tree";
@@ -487,10 +488,14 @@ export class DetailsPanel {
       : `<div class="ci-summary placeholder">(no description set)</div>`;
     if (body) html += `<div class="ci-body">${escapeHtml(reflowMessage(body))}</div>`;
 
-    html += `<div class="ci-person">
-      <span class="avatar large" style="--hue:${avatarHue(author.email || author.name)}">${escapeHtml(initials(author.name))}</span>
-      <div><div><b>${escapeHtml(author.name)}</b> <span class="muted">&lt;${escapeHtml(author.email)}&gt;</span></div>
+    html += `<div class="ci-person">${avatarHtml(author.name, author.email, "large")}
+      <div><div><b>${escapeHtml(author.name)}</b>${agentBadge(author.name, author.email)} <span class="muted">&lt;${escapeHtml(author.email)}&gt;</span></div>
       <div class="muted">${escapeHtml(formatFullDate(author.timestamp))}</div></div></div>`;
+    for (const co of row.coauthors) {
+      html += `<div class="ci-person coauthor">${avatarHtml(co.name, co.email, "medium")}
+        <div><b>${escapeHtml(co.name)}</b>${agentBadge(co.name, co.email)}${co.email ? ` <span class="muted">&lt;${escapeHtml(co.email)}&gt;</span>` : ""}
+        <span class="muted">· co-author</span></div></div>`;
+    }
 
     html += `<dl class="ci-meta">`;
     if (committer && (committer.email !== author.email || committer.name !== author.name)) {

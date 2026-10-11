@@ -1,7 +1,8 @@
 // Builds the DOM for one commit row: description with ref pills, then the
 // author, change ID, commit ID and date columns.
 
-import { avatarHue, escapeHtml, formatDate, formatFullDate, initials, splitConventional } from "./format";
+import { agentFor, avatarHtml } from "./agents";
+import { escapeHtml, formatDate, formatFullDate, splitConventional } from "./format";
 import { ROW_HEIGHT, laneColor, textX, type Graph } from "./graph";
 import type { LogRow, RefLabel } from "./types";
 
@@ -82,10 +83,34 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Gr
     graph.rowSvg(index) +
     `<div class="desc" style="padding-left:${textX(row.width)}px">${pills}` +
     `<span class="summary">${empty}${summary}</span>${body}</div>` +
-    `<div class="author" title="${escapeHtml(`${row.authorName} <${row.authorEmail}>`)}">` +
-    `<span class="avatar" style="--hue:${avatarHue(row.authorEmail || row.authorName)}">${escapeHtml(initials(row.authorName))}</span>` +
-    `<span class="name">${escapeHtml(row.authorName)}</span></div>` +
+    authorHtml(row) +
     `<div class="change" title="Change ID ${row.changeId}">${idHtml(row.changeId, row.changePrefixLen, "change-id")}</div>` +
     `<div class="commit" title="Commit ID ${row.commitId}">${idHtml(row.commitId, row.commitPrefixLen, "commit-id")}</div>` +
     `<div class="date" title="${escapeHtml(formatFullDate(row.timestamp))}">${escapeHtml(formatDate(row.timestamp))}</div>`;
+}
+
+/**
+ * The author column: overlapping avatars for the author and co-authors, and
+ * "author + co-author" (or "+ N") as text.
+ */
+function authorHtml(row: LogRow): string {
+  const people = [{ name: row.authorName, email: row.authorEmail }, ...row.coauthors];
+  const title = people.map((p) => (p.email ? `${p.name} <${p.email}>` : p.name)).join("\n");
+  const avatars = people
+    .slice(0, 3)
+    .map((p) => avatarHtml(p.name, p.email))
+    .join("");
+  let extra = "";
+  if (row.coauthors.length === 1) {
+    const co = row.coauthors[0];
+    // Agents go by their product name ("Claude"), people by their first name.
+    const short = agentFor(co.name, co.email)?.name.replace(/^AI$/, co.name.split(" ")[0]) ?? co.name.split(" ")[0];
+    extra = ` <span class="coauthors">+ ${escapeHtml(short)}</span>`;
+  } else if (row.coauthors.length > 1) {
+    extra = ` <span class="coauthors">+ ${row.coauthors.length}</span>`;
+  }
+  return (
+    `<div class="author" title="${escapeHtml(title)}"><span class="avatars">${avatars}</span>` +
+    `<span class="name">${escapeHtml(row.authorName)}${extra}</span></div>`
+  );
 }
