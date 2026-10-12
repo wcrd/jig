@@ -448,13 +448,19 @@ async fn jj_git_import(path: String) -> Result<jj_cli::CommandOutput, String> {
 async fn jj_git_push(
     path: String,
     bookmark: Option<String>,
+    remote: Option<String>,
 ) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || match bookmark {
-        Some(name) => {
+    jj_in(path, move || {
+        let mut args = jj_cli::strings(&["git", "push"]);
+        if let Some(name) = bookmark {
             jj_cli::validate_ref_name(&name)?;
-            Ok(jj_cli::strings(&["git", "push", "-b", &name]))
+            args.extend(jj_cli::strings(&["-b", &name]));
         }
-        None => Ok(jj_cli::strings(&["git", "push"])),
+        if let Some(remote) = remote {
+            jj_cli::validate_ref_name(&remote)?;
+            args.push(format!("--remote={remote}"));
+        }
+        Ok(args)
     })
     .await
 }

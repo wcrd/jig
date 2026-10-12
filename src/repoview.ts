@@ -261,7 +261,12 @@ export class RepoView {
     });
     this.ref("refresh").addEventListener("click", () => this.refresh());
     this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
-    this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
+    this.ref("push").addEventListener("click", () => {
+      const remotes = this.remotes();
+      if (remotes.length <= 1) return this.act("Push", () => jj.gitPush(this.path));
+      const rect = this.ref("push").getBoundingClientRect();
+      showMenu(this.pushAllEntries(remotes), { x: rect.left, y: rect.bottom });
+    });
     this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
     this.ref("help").addEventListener("click", () => showHelp());
     this.ref("full-diff-enter").addEventListener("click", () => this.toggleFullDiff());
@@ -555,7 +560,9 @@ export class RepoView {
       case "g":
         showMenu([
           { text: "Fetch", action: () => this.act("Fetch", () => jj.gitFetch(this.path)) },
-          { text: "Push", action: () => this.act("Push", () => jj.gitPush(this.path)) },
+          this.remotes().length > 1
+            ? { text: "Push to", items: this.pushAllEntries(this.remotes()) }
+            : { text: "Push", action: () => this.act("Push", () => jj.gitPush(this.path)) },
         ]);
         return true;
       case "L":
@@ -1298,16 +1305,43 @@ export class RepoView {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "origin";
   }
 
-  /** Menu entries to push a local bookmark, tracking it first if it's new on the remote. */
-  private pushEntry(name: string): MenuEntry {
-    const remote = this.defaultRemote();
+  /** The repo's remotes, the default first. */
+  private remotes(): string[] {
+    const names = (this.log?.sidebar.remotes ?? []).map((r) => r.name);
+    const first = this.defaultRemote();
+    return names.includes(first) ? [first, ...names.filter((n) => n !== first)] : names;
+  }
+
+  /** One push entry per remote, for when there are several. */
+  private pushAllEntries(remotes: string[]): MenuEntry[] {
+    return remotes.map((remote) => ({
+      text: `Push to ${remote}`,
+      action: () => this.act(`Push to ${remote}`, () => jj.gitPush(this.path, null, remote)),
+    }));
+  }
+
+  /** Pushes a local bookmark to `remote`, tracking it first if it's new there. */
+  private pushBookmark(name: string, remote: string) {
     const bookmark = this.log?.sidebar.bookmarks.find((b) => b.name === name);
+    if (bookmark?.remotes.some((r) => r.remote === remote)) {
+      this.act(`Push ${name} to ${remote}`, () => jj.gitPush(this.path, name, remote));
+    } else {
+      this.act(`Push new bookmark ${name} to ${remote}`, () => jj.pushNewBookmark(this.path, name, remote));
+    }
+  }
+
+  /** Menu entries to push a local bookmark, with a remote submenu if there are several. */
+  private pushEntry(name: string): MenuEntry {
+    const remotes = this.remotes();
+    const bookmark = this.log?.sidebar.bookmarks.find((b) => b.name === name);
+    const label = (remote: string) => (bookmark?.remotes.some((r) => r.remote === remote) ? remote : `${remote} (new)`);
+    if (remotes.length > 1) {
+      return { text: `Push “${name}” to`, items: remotes.map((remote) => ({ text: label(remote), action: () => this.pushBookmark(name, remote) })) };
+    }
+    const remote = remotes[0] ?? this.defaultRemote();
     const onRemote = bookmark?.remotes.some((r) => r.remote === remote);
-    if (onRemote) return { text: `Push “${name}”`, action: () => this.act(`Push ${name}`, () => jj.gitPush(this.path, name)) };
-    return {
-      text: `Push “${name}” to ${remote} (new)`,
-      action: () => this.act(`Push new bookmark ${name}`, () => jj.pushNewBookmark(this.path, name, remote)),
-    };
+    if (onRemote) return { text: `Push “${name}”`, action: () => this.pushBookmark(name, remote) };
+    return { text: `Push “${name}” to ${remote} (new)`, action: () => this.pushBookmark(name, remote) };
   }
 
   private trackEntry(name: string, remote: string, tracked: boolean): MenuEntry {
@@ -1331,13 +1365,17 @@ export class RepoView {
 
   /** Push and delete for a tag, and delete from the remote if it has it. */
   private tagEntries(name: string): MenuEntry[] {
-    const remote = this.defaultRemote();
+    const remotes = this.remotes();
+    if (remotes.length === 0) remotes.push(this.defaultRemote());
+    const tag = this.log?.sidebar.tags.find((t) => t.name === name);
+    const push = (remote: string) => this.act(`Push tag ${name} to ${remote}`, () => jj.pushTag(this.path, name, remote));
     const entries: MenuEntry[] = [
-      { text: `Push Tag “${name}” to ${remote}`, action: () => this.act(`Push tag ${name}`, () => jj.pushTag(this.path, name, remote)) },
+      remotes.length > 1
+        ? { text: `Push Tag “${name}” to`, items: remotes.map((remote) => ({ text: remote, action: () => push(remote) })) }
+        : { text: `Push Tag “${name}” to ${remotes[0]}`, action: () => push(remotes[0]) },
       { text: `Delete Tag “${name}”…`, action: () => this.deleteTag(name) },
     ];
-    const tag = this.log?.sidebar.tags.find((t) => t.name === name);
-    if (tag?.remotes.includes(remote)) {
+    for (const remote of remotes.filter((r) => tag?.remotes.includes(r))) {
       entries.push({ text: `Delete Tag “${name}” from ${remote}…`, action: () => this.deleteRemoteTag(name, remote) });
     }
     return entries;
