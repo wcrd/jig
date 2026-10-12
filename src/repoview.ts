@@ -276,6 +276,7 @@ export class RepoView {
   async load({ keepPosition = false } = {}) {
     if (this.loading) return;
     this.loading = true;
+    const previousIndex = this.selected;
     const previousChange = this.log && this.selected >= 0 ? this.log.rows[this.selected]?.changeId : null;
     const previousScroll = this.scroller.scrollTop;
     this.statusEl.textContent = "Loading…";
@@ -296,13 +297,17 @@ export class RepoView {
       if (selected < 0 && !keepPosition) selected = next.rows.findIndex((r) => r.isWorkingCopy);
       this.selected = selected;
       this.spacer.style.height = `${next.rows.length * ROW_HEIGHT}px`;
+      // Keep the selected commit where it was on screen, even if commits
+      // were added or removed above it.
+      const shift = keepPosition && selected >= 0 && previousIndex >= 0 ? (selected - previousIndex) * ROW_HEIGHT : 0;
+      this.scroller.scrollTop = keepPosition ? previousScroll + shift : 0;
+      // Redraw straight away: waiting for the next frame shows an empty list.
       this.clearRows();
-      this.scroller.scrollTop = keepPosition ? previousScroll : 0;
+      this.renderNow();
       this.updateStatus();
       this.sidebar.setData(next.sidebar);
       this.oplog.refresh();
-      this.render();
-      this.scheduleDetails();
+      this.scheduleDetails(keepPosition);
       this.onChange();
     } catch (err) {
       this.errorEl.textContent = String(err);
@@ -1142,12 +1147,17 @@ export class RepoView {
     this.render();
   }
 
-  private scheduleDetails() {
+  /**
+   * Shows the selected commit's details once its diff has loaded. A
+   * `refresh` after a reload keeps the old diff up until the new one is in,
+   * and keeps the panel's scroll position.
+   */
+  private scheduleDetails(refresh = false) {
     clearTimeout(this.detailsTimer);
     const row = this.log && this.selected >= 0 ? this.log.rows[this.selected] : null;
     this.sidebar.setSelectedCommit(row?.commitId ?? null);
     if (row && this.compareIndex >= 0 && this.compareIndex !== this.selected) {
-      this.scheduleCompare();
+      this.scheduleCompare(refresh);
       return;
     }
     if (!row) {
@@ -1156,24 +1166,24 @@ export class RepoView {
     }
     const cached = this.diffCache.get(row.commitId);
     if (cached) {
-      this.details.show(row, cached);
+      this.details.show(row, cached, refresh);
       return;
     }
-    this.details.showPending(row);
+    if (!refresh) this.details.showPending(row);
     const request = ++this.detailsRequest;
     this.detailsTimer = window.setTimeout(async () => {
       try {
         const diff = await fetchDiff(this.path, row.commitId);
         this.diffCache.set(row.commitId, diff);
         if (this.diffCache.size > DIFF_CACHE_SIZE) this.diffCache.delete(this.diffCache.keys().next().value!);
-        if (request === this.detailsRequest) this.details.show(row, diff);
+        if (request === this.detailsRequest) this.details.show(row, diff, refresh);
       } catch (err) {
         if (request === this.detailsRequest) this.details.showError(String(err));
       }
-    }, DETAILS_DELAY_MS);
+    }, refresh ? 0 : DETAILS_DELAY_MS);
   }
 
-  private scheduleCompare() {
+  private scheduleCompare(refresh = false) {
     const rows = this.log!.rows;
     // Compare from the older commit (lower in the graph) to the newer.
     const [a, b] = [this.selected, this.compareIndex].sort((x, y) => y - x);
@@ -1182,21 +1192,21 @@ export class RepoView {
     const key = `${from.commitId}..${to.commitId}`;
     const cached = this.compareCache.get(key);
     if (cached) {
-      this.details.showCompare(from, to, cached);
+      this.details.showCompare(from, to, cached, refresh);
       return;
     }
-    this.details.showPendingCompare(from, to);
+    if (!refresh) this.details.showPendingCompare(from, to);
     const request = ++this.detailsRequest;
     this.detailsTimer = window.setTimeout(async () => {
       try {
         const diff = await fetchCompare(this.path, from.commitId, to.commitId);
         this.compareCache.set(key, diff);
         if (this.compareCache.size > DIFF_CACHE_SIZE) this.compareCache.delete(this.compareCache.keys().next().value!);
-        if (request === this.detailsRequest) this.details.showCompare(from, to, diff);
+        if (request === this.detailsRequest) this.details.showCompare(from, to, diff, refresh);
       } catch (err) {
         if (request === this.detailsRequest) this.details.showError(String(err));
       }
-    }, DETAILS_DELAY_MS);
+    }, refresh ? 0 : DETAILS_DELAY_MS);
   }
 
   /** Runs a jj command with a toast, then reloads to show its effect. */

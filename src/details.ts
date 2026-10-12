@@ -255,7 +255,15 @@ export class DetailsPanel {
     if (this.tab !== "tree") this.el.view.innerHTML = "";
   }
 
-  show(row: LogRow, diff: CommitDiff) {
+  /** `refresh`: the repo reloaded, so keep scroll positions where the content allows. */
+  show(row: LogRow, diff: CommitDiff, refresh = false) {
+    // The same commit has the same diff; only its refs may have changed.
+    if (refresh && !this.compareFrom && this.diff && this.row?.commitId === row.commitId) {
+      this.row = row;
+      this.renderInfo();
+      this.updateContext();
+      return;
+    }
     const previousPath = this.diff?.files[this.fileIndex]?.path;
     if (this.split && this.row?.commitId !== row.commitId) this.split = new Map();
     if (this.editor && this.editor.changeId !== row.changeId) this.cancelEdit();
@@ -269,8 +277,7 @@ export class DetailsPanel {
     this.fileIndex = found >= 0 ? found : 0;
     // With nothing changed but conflicts present, show the first conflict.
     this.conflictPath = diff.files.length === 0 && diff.conflicts.length > 0 ? diff.conflicts[0] : null;
-    this.renderLeft();
-    this.renderRight();
+    this.rerender(refresh && found >= 0);
     // The split bar's counts depend on the diff, which may arrive after it.
     if (this.split) this.source.splitChanged();
   }
@@ -291,7 +298,7 @@ export class DetailsPanel {
    * file list, diffs and file tree all work as for a single commit, with the
    * "to" commit as the new side.
    */
-  showCompare(from: LogRow, to: LogRow, compare: CompareDiff) {
+  showCompare(from: LogRow, to: LogRow, compare: CompareDiff, refresh = false) {
     this.cancelEdit();
     const previousPath = this.diff?.files[this.fileIndex]?.path;
     this.conflictPath = null;
@@ -312,8 +319,15 @@ export class DetailsPanel {
     this.updateContext();
     const found = previousPath ? compare.files.findIndex((f) => f.path === previousPath) : -1;
     this.fileIndex = found >= 0 ? found : 0;
+    this.rerender(refresh && found >= 0);
+  }
+
+  /** Redraws both sides for a new diff, keeping the scroll positions if asked. */
+  private rerender(keepScroll: boolean) {
+    const listScroll = this.el.fileList.scrollTop;
     this.renderLeft();
-    this.renderRight();
+    if (keepScroll) this.el.fileList.scrollTop = listScroll;
+    this.renderRight(keepScroll);
   }
 
   private compareInfoHtml(from: LogRow, to: LogRow): string {
@@ -721,11 +735,11 @@ export class DetailsPanel {
 
   // Right side: the diff, or a file from the repository tree.
 
-  private renderRight() {
+  private renderRight(keepScroll = false) {
     if (this.tab === "commit") return;
-    if (this.tab === "tree") this.renderTreeFile();
+    if (this.tab === "tree") this.renderTreeFile(keepScroll);
     else if (this.conflictPath) this.renderConflict(this.conflictPath);
-    else this.renderDiff(true);
+    else this.renderDiff(!keepScroll);
   }
 
   private key(path: string): string {
@@ -913,7 +927,7 @@ export class DetailsPanel {
     this.renderDiff(false);
   }
 
-  private async renderTreeFile() {
+  private async renderTreeFile(keepScroll = false) {
     const path = this.treePath;
     const row = this.row;
     if (!row || !path) {
@@ -928,7 +942,8 @@ export class DetailsPanel {
     const header =
       `<div class="diff-header">${changed ? statusBadge(changed.status, changed.conflict) : FILE_ICON}<span class="diff-path">${escapeHtml(path)}</span>` +
       `<span class="header-buttons">${changed ? `<button class="header-button text" data-action="view-diff" title="Show this file's changes in this commit">View changes</button>` : ""}</span></div>`;
-    this.el.view.innerHTML = header + `<div class="placeholder-text">Loading…</div>`;
+    // On a refresh the old file stays up while the new one loads.
+    if (!keepScroll) this.el.view.innerHTML = header + `<div class="placeholder-text">Loading…</div>`;
     let text: FileText;
     try {
       text = await this.text(path);
@@ -937,13 +952,14 @@ export class DetailsPanel {
       return;
     }
     if (this.treePath !== path || this.row !== row || this.tab !== "tree") return;
+    const scrollTop = this.el.view.scrollTop;
     this.el.view.innerHTML = header + `<div class="diff-body"></div>`;
     this.showLines(
       text.text != null
         ? fileLines(splitLines(text.text), highlightCached(text, text.text, languageFor(path)))
         : { placeholder: text.binary ? "Binary file not shown" : text.tooLarge ? "File too large to show" : "Not a regular file" },
     );
-    this.el.view.scrollTop = 0;
+    this.el.view.scrollTop = keepScroll ? scrollTop : 0;
   }
 
   get editing(): boolean {
