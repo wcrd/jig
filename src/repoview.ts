@@ -1325,6 +1325,47 @@ export class RepoView {
     if (name) this.act(`Create bookmark ${name}`, () => jj.bookmarkCreate(this.path, name, row.commitId));
   }
 
+  private tagsAt(row: LogRow): string[] {
+    return row.refs.flatMap((r) => (r.type === "tag" ? [r.name] : []));
+  }
+
+  /** Push and delete for a tag, and delete from the remote if it has it. */
+  private tagEntries(name: string): MenuEntry[] {
+    const remote = this.defaultRemote();
+    const entries: MenuEntry[] = [
+      { text: `Push Tag “${name}” to ${remote}`, action: () => this.act(`Push tag ${name}`, () => jj.pushTag(this.path, name, remote)) },
+      { text: `Delete Tag “${name}”…`, action: () => this.deleteTag(name) },
+    ];
+    const tag = this.log?.sidebar.tags.find((t) => t.name === name);
+    if (tag?.remotes.includes(remote)) {
+      entries.push({ text: `Delete Tag “${name}” from ${remote}…`, action: () => this.deleteRemoteTag(name, remote) });
+    }
+    return entries;
+  }
+
+  private async createTag(row: LogRow) {
+    const name = await prompt("New Tag", `Create a tag at ${row.changeId.slice(0, 8)}`, "", "name");
+    if (name) this.act(`Create tag ${name}`, () => jj.tagCreate(this.path, name, row.commitId));
+  }
+
+  private async deleteTag(name: string) {
+    const ok = await confirm(
+      `Delete tag "${name}"? This only deletes it here: if a remote has it, the next fetch brings it back. You can undo with jj undo.`,
+      "Delete Tag",
+      "Delete",
+    );
+    if (ok) this.act(`Delete tag ${name}`, () => jj.tagDelete(this.path, name));
+  }
+
+  private async deleteRemoteTag(name: string, remote: string) {
+    const ok = await confirm(
+      `Delete tag "${name}" from ${remote}? It's removed for everyone, and jj undo can't bring it back. Your local tag goes too if it points at the same commit, as jj follows the remote.`,
+      "Delete Tag from Remote",
+      "Delete",
+    );
+    if (ok) this.act(`Delete tag ${name} from ${remote}`, () => jj.deleteRemoteTag(this.path, name, remote));
+  }
+
   private async deleteBookmark(name: string) {
     const ok = await confirm(
       `Delete bookmark "${name}"? On the next push, it's deleted from tracked remotes too. You can undo with jj undo.`,
@@ -1352,11 +1393,16 @@ export class RepoView {
     const others = this.localBookmarks()
       .filter((n) => !here.includes(n))
       .sort((a, b) => distance(a) - distance(b) || a.localeCompare(b));
-    const entries: MenuEntry[] = [{ text: "New Bookmark Here…", action: () => this.createBookmark(row) }];
+    const entries: MenuEntry[] = [
+      { text: "New Bookmark Here…", action: () => this.createBookmark(row) },
+      { text: "New Tag Here…", action: () => this.createTag(row) },
+    ];
     for (const name of here) entries.push(this.pushEntry(name));
     for (const name of here) entries.push({ text: `Delete “${name}”…`, action: () => this.deleteBookmark(name) });
     const remotes = row.refs.flatMap((r) => (r.type === "remoteBookmark" ? [r] : []));
     for (const r of remotes) entries.push(this.trackEntry(r.name, r.remote, r.tracked));
+    const tags = this.tagsAt(row);
+    if (tags.length > 0) entries.push("separator", ...tags.flatMap((name) => this.tagEntries(name)));
     if (others.length > 0) {
       entries.push("separator");
       for (const name of others) {
@@ -1396,6 +1442,7 @@ export class RepoView {
       { text: "Abandon…", shortcut: "A", action: () => this.startAbandon(index), enabled: !row.immutable },
       "separator",
       { text: "New Bookmark Here…", action: () => this.createBookmark(row) },
+      { text: "New Tag Here…", action: () => this.createTag(row) },
     ];
     if (others.length > 0) {
       entries.push({
@@ -1419,6 +1466,8 @@ export class RepoView {
       entries.push("separator");
       for (const r of remotes) entries.push(this.trackEntry(r.name, r.remote, r.tracked));
     }
+    const tags = this.tagsAt(row);
+    if (tags.length > 0) entries.push("separator", ...tags.flatMap((name) => this.tagEntries(name)));
     entries.push("separator");
     if (previous >= 0 && previous !== index) {
       entries.push({
@@ -1470,6 +1519,8 @@ export class RepoView {
       entries.push(this.pushEntry(item.name), { text: `Delete “${item.name}”…`, action: () => this.deleteBookmark(item.name) });
       for (const r of item.bookmark?.remotes.filter((r) => r.tracked) ?? []) entries.push(this.trackEntry(item.name, r.remote, true));
       entries.push("separator");
+    } else if (item.kind === "tag") {
+      entries.push(...this.tagEntries(item.name), "separator");
     } else if (item.kind === "remote" && item.remote) {
       entries.push(this.trackEntry(item.name, item.remote, !!item.tracked), "separator");
     }

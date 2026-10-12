@@ -86,6 +86,12 @@ export const jj = {
     invoke<CommandOutput>("jj_bookmark_untrack", { path, name, remote }),
   pushNewBookmark: (path: string, name: string, remote: string) =>
     invoke<CommandOutput>("jj_push_new_bookmark", { path, name, remote }),
+  tagCreate: (path: string, name: string, revision: string) =>
+    invoke<CommandOutput>("jj_tag_create", { path, name, revision }),
+  tagDelete: (path: string, name: string) => invoke<CommandOutput>("jj_tag_delete", { path, name }),
+  pushTag: (path: string, name: string, remote: string) => invoke<CommandOutput>("jj_push_tag", { path, name, remote }),
+  deleteRemoteTag: (path: string, name: string, remote: string) =>
+    invoke<CommandOutput>("jj_delete_remote_tag", { path, name, remote }),
   gitFetch: (path: string, remote: string | null = null) => invoke<CommandOutput>("jj_git_fetch", { path, remote }),
   gitImport: (path: string) => invoke<CommandOutput>("jj_git_import", { path }),
   gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),

@@ -21,7 +21,7 @@ While I built this for the 2 reasons above, `jig` also supports most of the othe
 - Commit graph with bookmarks, remotes, workspaces, divergence and conflicts
 - Diffs, file tree and commit comparison (⌘-click two commits)
 - New, describe, squash, split, rebase, abandon, revert and cherry-pick, with undo/redo
-- Fetch, push and bookmark management
+- Fetch, push, and bookmark and tag management
 - Oplog viewer
 - `jjui` key bindings (press `?` for shortcuts)
 

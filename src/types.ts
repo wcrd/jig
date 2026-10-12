@@ -82,7 +82,8 @@ export interface Sidebar {
   /** The repo's git remotes and their fetch URLs. */
   remotes: { name: string; url: string | null }[];
   bookmarks: SidebarBookmark[];
-  tags: { name: string; commitId: string | null }[];
+  /** `remotes`: those that had the tag as of the last fetch. */
+  tags: { name: string; commitId: string | null; remotes: string[] }[];
   workspaces: { name: string; commitId: string; current: boolean }[];
 }
 

@@ -108,6 +108,8 @@ pub struct SidebarRemoteRef {
 pub struct SidebarTag {
     pub name: String,
     pub commit_id: Option<String>,
+    /// Remotes that had the tag as of the last fetch.
+    pub remotes: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -891,11 +893,18 @@ fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
         .collect();
     bookmarks.sort_by(|a, b| a.name.cmp(&b.name));
 
+    let mut tag_remotes: HashMap<&str, Vec<String>> = HashMap::new();
+    for (symbol, remote_ref) in view.all_remote_tags() {
+        if symbol.remote != REMOTE_NAME_FOR_LOCAL_GIT_REPO && remote_ref.target.is_present() {
+            tag_remotes.entry(symbol.name.as_str()).or_default().push(symbol.remote.as_str().to_owned());
+        }
+    }
     let mut tags: Vec<SidebarTag> = view
         .local_tags()
         .map(|(name, target)| SidebarTag {
             name: name.as_str().to_owned(),
             commit_id: target.added_ids().next().map(|id| id.hex()),
+            remotes: tag_remotes.remove(name.as_str()).unwrap_or_default(),
         })
         .collect();
     tags.sort_by(|a, b| a.name.cmp(&b.name));

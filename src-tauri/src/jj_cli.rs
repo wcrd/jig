@@ -24,37 +24,35 @@ fn is_executable_file(path: &Path) -> bool {
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-/// Looks for `jj` on the process `PATH`.
-fn find_on_path() -> Option<PathBuf> {
+/// Looks for `name` on the process `PATH`.
+fn find_on_path(name: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path)
-        .map(|dir| dir.join("jj"))
+        .map(|dir| dir.join(name))
         .find(|p| is_executable_file(p))
 }
 
 /// Common install locations, since GUI apps launched from Finder don't get
 /// the shell's `PATH`.
-fn find_in_known_dirs() -> Option<PathBuf> {
-    let mut candidates = vec![
-        PathBuf::from("/opt/homebrew/bin/jj"),
-        PathBuf::from("/usr/local/bin/jj"),
-    ];
+fn find_in_known_dirs(name: &str) -> Option<PathBuf> {
+    let mut dirs = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
-        candidates.push(home.join(".cargo/bin/jj"));
-        candidates.push(home.join(".local/bin/jj"));
-        candidates.push(home.join(".nix-profile/bin/jj"));
+        dirs.push(home.join(".cargo/bin"));
+        dirs.push(home.join(".local/bin"));
+        dirs.push(home.join(".nix-profile/bin"));
     }
-    candidates.into_iter().find(|p| is_executable_file(p))
+    dirs.push(PathBuf::from("/usr/bin"));
+    dirs.into_iter().map(|dir| dir.join(name)).find(|p| is_executable_file(p))
 }
 
 /// Last resort: ask the user's login shell, which has their real `PATH`.
-fn find_via_login_shell() -> Option<PathBuf> {
+fn find_via_login_shell(name: &str) -> Option<PathBuf> {
     let shell = std::env::var("SHELL")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "/bin/zsh".to_owned());
     let out = Command::new(shell)
-        .args(["-lc", "command -v jj"])
+        .args(["-lc", &format!("command -v {name}")])
         .output()
         .ok()?;
     let line = String::from_utf8_lossy(&out.stdout)
@@ -66,16 +64,26 @@ fn find_via_login_shell() -> Option<PathBuf> {
     (path.is_absolute() && is_executable_file(&path)).then_some(path)
 }
 
+fn find_binary(name: &str) -> Option<PathBuf> {
+    find_on_path(name)
+        .or_else(|| find_in_known_dirs(name))
+        .or_else(|| find_via_login_shell(name))
+}
+
 /// The `jj` binary, looked up once.
 fn jj_binary() -> Result<&'static Path> {
     static JJ: OnceLock<Option<PathBuf>> = OnceLock::new();
-    JJ.get_or_init(|| {
-        find_on_path()
-            .or_else(find_in_known_dirs)
-            .or_else(find_via_login_shell)
-    })
-    .as_deref()
-    .ok_or_else(|| anyhow!("could not find the `jj` binary; install jj or add it to your PATH"))
+    JJ.get_or_init(|| find_binary("jj"))
+        .as_deref()
+        .ok_or_else(|| anyhow!("could not find the `jj` binary; install jj or add it to your PATH"))
+}
+
+/// The `git` binary, looked up once.
+fn git_binary() -> Result<&'static Path> {
+    static GIT: OnceLock<Option<PathBuf>> = OnceLock::new();
+    GIT.get_or_init(|| find_binary("git"))
+        .as_deref()
+        .ok_or_else(|| anyhow!("could not find the `git` binary; install git or add it to your PATH"))
 }
 
 /// Runs `jj --no-pager --color never -R <root> <args…>` in `root`. Only a
@@ -108,6 +116,43 @@ pub fn run_with_config(root: &Path, configs: &[String], args: &[&str]) -> Result
         stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
         command: format!("jj {}", args.join(" ")),
     })
+}
+
+/// Runs `git --git-dir=<git_dir> <args…>` in `root`, for what jj can't do
+/// yet. Like [`run`], a non-zero exit is `success: false`.
+pub fn run_git(root: &Path, git_dir: &Path, args: &[&str]) -> Result<CommandOutput> {
+    let git = git_binary()?;
+    let output = Command::new(git)
+        .arg(format!("--git-dir={}", git_dir.display()))
+        .args(args)
+        .current_dir(root)
+        .stdin(std::process::Stdio::null())
+        // Fail rather than wait for a username or password nobody can type.
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .with_context(|| format!("failed to run {}", git.display()))?;
+    Ok(CommandOutput {
+        success: output.status.success(),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        command: format!("git {}", args.join(" ")),
+    })
+}
+
+impl CommandOutput {
+    /// An empty, successful result to append commands to.
+    pub fn empty() -> Self {
+        CommandOutput { success: true, stdout: String::new(), stderr: String::new(), command: String::new() }
+    }
+
+    /// Appends `next` as a following command; false if it failed.
+    pub fn append(&mut self, next: CommandOutput) -> bool {
+        self.command += &if self.command.is_empty() { next.command } else { format!(" && {}", next.command) };
+        self.stdout += &next.stdout;
+        self.stderr += &next.stderr;
+        self.success &= next.success;
+        next.success
+    }
 }
 
 /// Owned copies of literal args, for passing across the blocking boundary.

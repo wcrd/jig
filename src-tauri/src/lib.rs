@@ -207,20 +207,10 @@ async fn jj_in_many(
     blocking(move || {
         let root = repo::find_workspace_root(&PathBuf::from(&path))
             .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
-        let mut combined = jj_cli::CommandOutput {
-            success: true,
-            stdout: String::new(),
-            stderr: String::new(),
-            command: String::new(),
-        };
+        let mut combined = jj_cli::CommandOutput::empty();
         for args in build()? {
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
-            let output = jj_cli::run(&root, &args)?;
-            combined.command += &if combined.command.is_empty() { output.command } else { format!(" && {}", output.command) };
-            combined.stdout += &output.stdout;
-            combined.stderr += &output.stderr;
-            if !output.success {
-                combined.success = false;
+            if !combined.append(jj_cli::run(&root, &args)?) {
                 break;
             }
         }
@@ -312,6 +302,100 @@ async fn jj_bookmark_untrack(
         jj_cli::validate_ref_name(&name)?;
         jj_cli::validate_ref_name(&remote)?;
         Ok(jj_cli::strings(&["bookmark", "untrack", &name, &format!("--remote={remote}")]))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_tag_create(
+    path: String,
+    name: String,
+    revision: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_revision(&revision)?;
+        Ok(jj_cli::strings(&["tag", "set", &name, "-r", &revision]))
+    })
+    .await
+}
+
+#[tauri::command]
+async fn jj_tag_delete(path: String, name: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        // Names are globs by default.
+        Ok(jj_cli::strings(&["tag", "delete", &format!("exact:{name}")]))
+    })
+    .await
+}
+
+/// jj can't push tags yet, so export them to its git repo (which a
+/// non-colocated repo only does on demand) and push with git.
+#[tauri::command]
+async fn jj_push_tag(
+    path: String,
+    name: String,
+    remote: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_ref_name(&remote)?;
+        if name.contains(':') || name.starts_with('+') {
+            anyhow::bail!("not a valid tag name: {name}");
+        }
+        let mut combined = jj_cli::CommandOutput::empty();
+        if !combined.append(jj_cli::run(&root, &["git", "export"])?) {
+            return Ok(combined);
+        }
+        let git_root = jj_cli::run(&root, &["git", "root"])?;
+        if !git_root.success {
+            combined.append(git_root);
+            return Ok(combined);
+        }
+        let git_dir = PathBuf::from(git_root.stdout.trim());
+        let refspec = format!("refs/tags/{name}:refs/tags/{name}");
+        if combined.append(jj_cli::run_git(&root, &git_dir, &["push", &remote, &refspec])?) {
+            // Fetch it back so jj records that the remote has it.
+            let tag = format!("--tag=exact:{name}");
+            combined.append(jj_cli::run(&root, &["git", "fetch", &format!("--remote={remote}"), &tag])?);
+        }
+        Ok(combined)
+    })
+    .await
+}
+
+/// Deletes a tag from a remote with git, then fetches its tags: only a
+/// pattern fetch drops jj's record of the remote's tag (and the local one
+/// following it), not a plain or exact-name one.
+#[tauri::command]
+async fn jj_delete_remote_tag(
+    path: String,
+    name: String,
+    remote: String,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        jj_cli::validate_ref_name(&name)?;
+        jj_cli::validate_ref_name(&remote)?;
+        if name.contains(':') || name.starts_with('+') {
+            anyhow::bail!("not a valid tag name: {name}");
+        }
+        let mut combined = jj_cli::CommandOutput::empty();
+        let git_root = jj_cli::run(&root, &["git", "root"])?;
+        if !git_root.success {
+            combined.append(git_root);
+            return Ok(combined);
+        }
+        let git_dir = PathBuf::from(git_root.stdout.trim());
+        let refspec = format!(":refs/tags/{name}");
+        if combined.append(jj_cli::run_git(&root, &git_dir, &["push", &remote, &refspec])?) {
+            combined.append(jj_cli::run(&root, &["git", "fetch", &format!("--remote={remote}"), "--tag=*"])?);
+        }
+        Ok(combined)
     })
     .await
 }
@@ -613,6 +697,10 @@ pub fn run() {
             jj_bookmark_track,
             jj_bookmark_untrack,
             jj_push_new_bookmark,
+            jj_tag_create,
+            jj_tag_delete,
+            jj_push_tag,
+            jj_delete_remote_tag,
             jj_git_fetch,
             jj_git_import,
             open_url,
