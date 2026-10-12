@@ -34,6 +34,14 @@ Build the `.app` and `.dmg` (in `src-tauri/target/release/bundle/`) for a releas
 npm run tauri build
 ```
 
+Making the `.dmg` mounts it and has Finder lay out its window, which pops up on screen and can fail when Finder can't be scripted. `CI=true` skips the layout step, leaving the window's icons wherever macOS puts them:
+
+```bash
+CI=true npm run tauri build
+```
+
+If a build is interrupted, its image can stay mounted and break the next one; `hdiutil info` lists it and `hdiutil detach` ejects it.
+
 ## Playground repo
 
 `scripts/make-playground.sh` builds a throwaway repo at `../jig-playground/repo` with a local remote, several authors, merges, bookmarks, a conflict, a divergent change and a second workspace. Re-run it to reset.
