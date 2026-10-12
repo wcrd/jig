@@ -65,28 +65,36 @@ export interface TreeRenderOptions {
   /** HTML for a file row's contents (after the indent). */
   fileHtml(item: number, node: TreeNode): string;
   selected: number;
+  /** A folder with keyboard focus, highlighted instead of the selected file. */
+  selectedFolder?: string | null;
 }
 
-/** Renders the expanded part of a tree as rows; returns the files in order. */
-export function renderTree(root: TreeNode, options: TreeRenderOptions): { html: string; order: number[] } {
+/** A visible row of a tree: a folder by path, or a file by item. */
+export type TreeRow = { folder: string } | { item: number };
+
+/** Renders the expanded part of a tree; returns its visible rows in order. */
+export function renderTree(root: TreeNode, options: TreeRenderOptions): { html: string; rows: TreeRow[] } {
   let html = "";
-  const order: number[] = [];
+  const rows: TreeRow[] = [];
+  const focused = options.selectedFolder ?? null;
   const walk = (node: TreeNode, depth: number) => {
     for (const child of node.children) {
       const indent = `style="padding-left:${10 + depth * 14}px"`;
       if (child.item === undefined) {
         const open = !options.collapsed.has(child.path);
-        html += `<div class="tree-row folder${open ? " open" : ""}" data-folder="${escapeHtml(child.path)}" ${indent}>${CHEVRON}${FOLDER}<span class="name">${escapeHtml(child.name)}</span></div>`;
+        rows.push({ folder: child.path });
+        const selected = child.path === focused ? " selected" : "";
+        html += `<div class="tree-row folder${open ? " open" : ""}${selected}" data-folder="${escapeHtml(child.path)}" ${indent}>${CHEVRON}${FOLDER}<span class="name">${escapeHtml(child.name)}</span></div>`;
         if (open) walk(child, depth + 1);
       } else {
-        order.push(child.item);
-        const selected = child.item === options.selected ? " selected" : "";
+        rows.push({ item: child.item });
+        const selected = focused === null && child.item === options.selected ? " selected" : "";
         html += `<div class="tree-row file${selected}" data-index="${child.item}" ${indent}><span class="chevron-space"></span>${options.fileHtml(child.item, child)}</div>`;
       }
     }
   };
   walk(root, 0);
-  return { html, order };
+  return { html, rows };
 }
 
 /** Every folder path in a tree, for collapsing a whole tree. */

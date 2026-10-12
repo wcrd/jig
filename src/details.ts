@@ -13,7 +13,7 @@ import {
   type SplitTicks,
   splitLines,
 } from "./diffview";
-import { buildTree, folderPaths, renderTree, type TreeNode } from "./filetree";
+import { buildTree, folderPaths, renderTree, type TreeNode, type TreeRow } from "./filetree";
 import type { SearchTarget } from "./search";
 import { type LineSet, VirtualLines } from "./virtual";
 import { highlightCached, languageFor, type Segment } from "./highlight";
@@ -100,7 +100,7 @@ export class DetailsPanel {
   /** A conflicted file being viewed instead of a diff. */
   private conflictPath: string | null = null;
 
-  private fileOrder: number[] = [];
+  private fileRows: TreeRow[] = [];
   private changesCollapsed = new Set<string>();
   private changesTree: TreeNode | null = null;
 
@@ -115,7 +115,9 @@ export class DetailsPanel {
   /** Folders are collapsed in the browser unless opened. */
   private treeOpen = new Set<string>();
   private treePath: string | null = null;
-  private treeOrder: number[] = [];
+  private treeRows: TreeRow[] = [];
+  /** A folder the arrow keys have moved onto, in either tree. */
+  private focusedFolder: string | null = null;
 
   /**
    * In split mode, what's ticked for the first commit, by path: every change
@@ -159,6 +161,7 @@ export class DetailsPanel {
       const action = button.dataset.action;
       if (action === "list" || action === "tree") {
         this.changesView = action;
+        this.focusedFolder = null;
         this.source.save("changesView", action);
         this.renderLeft();
       } else if (action === "swap") {
@@ -177,6 +180,7 @@ export class DetailsPanel {
       }
       const folder = target.closest<HTMLElement>("[data-folder]");
       if (folder) {
+        this.focusedFolder = folder.dataset.folder!;
         this.toggleFolder(folder.dataset.folder!);
         return;
       }
@@ -268,6 +272,7 @@ export class DetailsPanel {
     if (this.split && this.row?.commitId !== row.commitId) this.split = new Map();
     if (this.editor && this.editor.changeId !== row.changeId) this.cancelEdit();
     this.compareFrom = null;
+    this.focusedFolder = null;
     this.row = row;
     this.diff = diff;
     this.changesTree = buildTree(diff.files.map((f) => f.path));
@@ -302,6 +307,7 @@ export class DetailsPanel {
     this.cancelEdit();
     const previousPath = this.diff?.files[this.fileIndex]?.path;
     this.conflictPath = null;
+    this.focusedFolder = null;
     this.compareFrom = from;
     this.row = to;
     this.diff = {
@@ -512,14 +518,65 @@ export class DetailsPanel {
     this.el.view.innerHTML = `<div class="placeholder-text error-text">${escapeHtml(message)}</div>`;
   }
 
-  /** Moves the file selection, for keyboard navigation. */
+  /** Moves the selection through files and folders, for keyboard navigation. */
   moveFile(delta: number) {
-    const order = this.tab === "tree" ? this.treeOrder : this.fileOrder;
-    if (order.length === 0) return;
-    const current = this.tab === "tree" ? this.treeIndex() : this.fileIndex;
-    const at = order.indexOf(current);
-    const next = order[Math.max(0, Math.min(order.length - 1, at < 0 ? 0 : at + delta))];
-    this.selectItem(next);
+    const rows = this.tab === "tree" ? this.treeRows : this.fileRows;
+    if (rows.length === 0) return;
+    const at = rows.findIndex((r) => this.isCurrentRow(r));
+    const next = rows[Math.max(0, Math.min(rows.length - 1, at < 0 ? 0 : at + delta))];
+    if ("folder" in next) {
+      this.focusedFolder = next.folder;
+      this.markSelection();
+    } else {
+      this.selectItem(next.item);
+    }
+  }
+
+  /**
+   * ← / → on a focused folder: ← collapses it, or steps to its parent once
+   * closed; → expands it, or steps into it once open. Returns whether the
+   * key was used.
+   */
+  folderKey(expand: boolean) {
+    const path = this.focusedFolder;
+    if (path === null) return false;
+    const open = this.tab === "tree" ? this.isTreeFolderOpen(path) : !this.changesCollapsed.has(path);
+    if (open !== expand) {
+      this.toggleFolder(path);
+    } else if (expand) {
+      this.moveFile(1);
+    } else {
+      const rows = this.tab === "tree" ? this.treeRows : this.fileRows;
+      const at = rows.findIndex((r) => this.isCurrentRow(r));
+      for (let i = at - 1; i >= 0; i--) {
+        const row = rows[i];
+        if ("folder" in row && path.startsWith(`${row.folder}/`)) {
+          this.focusedFolder = row.folder;
+          this.markSelection();
+          break;
+        }
+      }
+    }
+    return true;
+  }
+
+  private isCurrentRow(row: TreeRow): boolean {
+    if ("folder" in row) return row.folder === this.focusedFolder;
+    return this.focusedFolder === null && row.item === (this.tab === "tree" ? this.treeIndex() : this.fileIndex);
+  }
+
+  /** Highlights the focused folder, or else the selected file, and scrolls it into view. */
+  private markSelection() {
+    for (const el of this.el.fileList.querySelectorAll<HTMLElement>(".tree-row")) {
+      const selected =
+        el.dataset.folder !== undefined
+          ? el.dataset.folder === this.focusedFolder
+          : el.dataset.index !== undefined
+            ? this.isCurrentRow({ item: Number(el.dataset.index) })
+            : this.focusedFolder === null && el.dataset.conflict === this.conflictPath;
+      el.classList.toggle("selected", selected);
+    }
+    this.el.fileList.querySelector(".tree-row.selected")?.scrollIntoView({ block: "nearest" });
   }
 
   get currentTab(): DetailsTab {
@@ -529,6 +586,7 @@ export class DetailsPanel {
   setTab(tab: DetailsTab) {
     if (tab === this.tab) return;
     this.tab = tab;
+    this.focusedFolder = null;
     this.source.save("detailsTab", tab);
     this.renderTabs();
     this.renderLeft();
@@ -556,7 +614,7 @@ export class DetailsPanel {
     if (!diff) {
       this.el.fileHeader.innerHTML = this.row ? `<span>Changes</span>` : "";
       this.el.fileList.innerHTML = "";
-      this.fileOrder = [];
+      this.fileRows = [];
       return;
     }
     const files = diff.files;
@@ -572,7 +630,7 @@ export class DetailsPanel {
     const conflicts = this.compareFrom ? "" : this.conflictsHtml(diff.conflicts);
     if (files.length === 0 && conflicts) {
       this.el.fileList.innerHTML = conflicts + `<div class="placeholder-text">No changes beyond its parents</div>`;
-      this.fileOrder = [];
+      this.fileRows = [];
       return;
     }
     if (files.length === 0) {
@@ -584,18 +642,19 @@ export class DetailsPanel {
           ? "Clean merge: no changes beyond its parents"
           : "No changes";
       this.el.fileList.innerHTML = `<div class="placeholder-text">${message}</div>`;
-      this.fileOrder = [];
+      this.fileRows = [];
       return;
     }
 
     if (this.changesView === "tree") {
-      const { html, order } = renderTree(this.changesTree!, {
+      const { html, rows } = renderTree(this.changesTree!, {
         collapsed: this.changesCollapsed,
         selected: this.fileIndex,
+        selectedFolder: this.focusedFolder,
         fileHtml: (i, node) => this.changedFileHtml(files[i], node.name, ""),
       });
       this.el.fileList.innerHTML = conflicts + (conflicts ? `<div class="list-section">Changes</div>` : "") + html;
-      this.fileOrder = order;
+      this.fileRows = rows;
     } else {
       this.el.fileList.innerHTML = conflicts + (conflicts ? `<div class="list-section">Changes</div>` : "") + files
         .map((file, i) => {
@@ -605,7 +664,7 @@ export class DetailsPanel {
           return `<div class="tree-row file${i === this.fileIndex ? " selected" : ""}" data-index="${i}">${this.changedFileHtml(file, name, dir)}</div>`;
         })
         .join("");
-      this.fileOrder = files.map((_, i) => i);
+      this.fileRows = files.map((_, i) => ({ item: i }));
     }
   }
 
@@ -669,9 +728,10 @@ export class DetailsPanel {
 
     const changed = new Map((this.diff?.files ?? []).map((f) => [f.path, f]));
     const collapsed = new Set(folderPaths(this.treeRoot!).filter((p) => !this.isTreeFolderOpen(p)));
-    const { html, order } = renderTree(this.treeRoot!, {
+    const { html, rows } = renderTree(this.treeRoot!, {
       collapsed,
       selected: this.treeIndex(),
+      selectedFolder: this.focusedFolder,
       fileHtml: (i, node) => {
         const file = changed.get(this.treeEntries[i].path);
         const badge = file ? statusBadge(file.status, file.conflict) : FILE_ICON;
@@ -682,7 +742,7 @@ export class DetailsPanel {
       `<span>${this.treeEntries.length.toLocaleString()} files</span>` +
       `<span class="header-buttons"><button class="header-button" data-action="collapse" title="Collapse all folders">${COLLAPSE_ICON}</button></span>`;
     this.el.fileList.innerHTML = html;
-    this.treeOrder = order;
+    this.treeRows = rows;
   }
 
   /** A compressed folder node ("a/b") is open when its deepest folder is. */
@@ -708,6 +768,10 @@ export class DetailsPanel {
   }
 
   private selectItem(index: number) {
+    if (this.focusedFolder !== null) {
+      this.focusedFolder = null;
+      this.markSelection();
+    }
     if (this.tab === "tree") {
       const path = this.treeEntries[index]?.path;
       if (!path || path === this.treePath) return;
@@ -726,10 +790,7 @@ export class DetailsPanel {
         this.renderLeft();
       }
     }
-    for (const el of this.el.fileList.querySelectorAll<HTMLElement>(".tree-row.file")) {
-      el.classList.toggle("selected", Number(el.dataset.index) === index);
-    }
-    this.el.fileList.querySelector(".tree-row.file.selected")?.scrollIntoView({ block: "nearest" });
+    this.markSelection();
     this.renderRight();
   }
 

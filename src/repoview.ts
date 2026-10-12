@@ -518,6 +518,10 @@ export class RepoView {
       this.toggleFullDiff();
       return true;
     }
+    // On a folder in the file tree, ← / → collapse and expand it.
+    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && !this.detailsMin) {
+      if (this.details.folderKey(event.key === "ArrowRight")) return true;
+    }
     // ← / → step the details panel between minimised, its usual size and full size.
     if (event.key === "ArrowLeft") {
       if (this.fullDiff) this.toggleFullDiff();
@@ -836,6 +840,9 @@ export class RepoView {
     if (event.key in moves) {
       move(moves[event.key]);
       return true;
+    }
+    if (p.kind === "split" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      if (this.details.folderKey(event.key === "ArrowRight")) return true;
     }
     if (event.key === "@" && p.kind !== "split") {
       const wc = rows.findIndex((r) => r.isWorkingCopy);
