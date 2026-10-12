@@ -245,7 +245,16 @@ export class RepoView {
       const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
       if (!row) return;
       event.preventDefault();
-      this.commitMenu(Number(row.dataset.index));
+      const index = Number(row.dataset.index);
+      // Right-click selects the row, as a click does, so the menu's shortcuts
+      // act on it too. Not while picking, where clicks choose a destination.
+      const previous = this.selected;
+      if (!this.pending && index !== this.selected) {
+        this.compareIndex = -1;
+        this.select(index, false);
+        this.scheduleDetails();
+      }
+      this.commitMenu(index, previous);
     });
     this.revsetPreset.addEventListener("change", () => {
       if (this.revsetPreset.value !== "custom") this.applyRevset(this.revsetPreset.value);
@@ -1298,24 +1307,25 @@ export class RepoView {
     showMenu(entries, rect ? { x: rect.left, y: rect.bottom } : undefined);
   }
 
-  private commitMenu(index: number) {
+  /** `previous` is the row selected before the right-click, offered for comparison. */
+  private commitMenu(index: number, previous = this.selected) {
     const row = this.log?.rows[index];
     if (!row) return;
     const here = row.refs.filter((r) => r.type === "bookmark").map((r) => r.name);
     const others = this.localBookmarks().filter((n) => !here.includes(n));
     const entries: MenuEntry[] = [
-      { text: "New Change Here", action: () => this.newChange(row) },
-      { text: "Edit", action: () => this.editCommit(row), enabled: !row.immutable },
-      { text: "Describe…", action: () => this.describe(row), enabled: !row.immutable },
+      { text: "New Change Here", shortcut: "N", action: () => this.newChange(row) },
+      { text: "Edit", shortcut: "E", action: () => this.editCommit(row), enabled: !row.immutable },
+      { text: "Describe…", shortcut: "Shift+D", action: () => this.describe(row), enabled: !row.immutable },
       "separator",
-      { text: "Rebase…", action: () => this.startRebase(index, "revision") },
+      { text: "Rebase…", shortcut: "R", action: () => this.startRebase(index, "revision") },
       { text: "Rebase with Descendants…", action: () => this.startRebase(index, "source") },
-      { text: "Squash into…", action: () => this.startSquash(index), enabled: !row.immutable },
-      { text: "Split…", action: () => this.startSplit(index), enabled: !row.immutable },
-      { text: "Absorb into Ancestors", action: () => this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true }), enabled: !row.immutable },
-      { text: "Copy to… (Cherry-pick)", action: () => this.startPlaced("duplicate", index) },
-      { text: "Revert…", action: () => this.startPlaced("revert", index) },
-      { text: "Abandon…", action: () => this.startAbandon(index), enabled: !row.immutable },
+      { text: "Squash into…", shortcut: "Shift+S", action: () => this.startSquash(index), enabled: !row.immutable },
+      { text: "Split…", shortcut: "S", action: () => this.startSplit(index), enabled: !row.immutable },
+      { text: "Absorb into Ancestors", shortcut: "Shift+A", action: () => this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true }), enabled: !row.immutable },
+      { text: "Copy to… (Cherry-pick)", shortcut: "Y", action: () => this.startPlaced("duplicate", index) },
+      { text: "Revert…", shortcut: "Shift+R", action: () => this.startPlaced("revert", index) },
+      { text: "Abandon…", shortcut: "A", action: () => this.startAbandon(index), enabled: !row.immutable },
       "separator",
       { text: "New Bookmark Here…", action: () => this.createBookmark(row) },
     ];
@@ -1342,8 +1352,11 @@ export class RepoView {
       for (const r of remotes) entries.push(this.trackEntry(r.name, r.remote, r.tracked));
     }
     entries.push("separator");
-    if (this.selected >= 0 && this.selected !== index) {
-      entries.push({ text: "Compare with Selected", action: () => this.setCompare(index) });
+    if (previous >= 0 && previous !== index) {
+      entries.push({
+        text: "Compare with Previous Selection",
+        action: () => (this.selected === index ? this.setCompare(previous) : this.setCompare(index)),
+      });
       entries.push("separator");
     }
     entries.push(

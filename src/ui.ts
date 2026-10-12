@@ -10,7 +10,8 @@ import { escapeHtml } from "./format";
 import type { CommandOutput } from "./types";
 
 export type MenuEntry =
-  | { text: string; action: () => void; enabled?: boolean }
+  // `shortcut` is a Tauri accelerator such as "N" or "Shift+S", shown beside the item.
+  | { text: string; action: () => void; enabled?: boolean; shortcut?: string }
   | { text: string; items: MenuEntry[] }
   | "separator";
 
@@ -23,7 +24,12 @@ async function buildItems(entries: MenuEntry[]): Promise<NativeItem[]> {
       if ("items" in entry) {
         return Submenu.new({ text: entry.text, items: await buildItems(entry.items) });
       }
-      return MenuItem.new({ text: entry.text, enabled: entry.enabled ?? true, action: entry.action });
+      return MenuItem.new({
+        text: entry.text,
+        enabled: entry.enabled ?? true,
+        accelerator: entry.shortcut,
+        action: entry.action,
+      });
     }),
   );
 }
