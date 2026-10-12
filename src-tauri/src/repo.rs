@@ -133,6 +133,9 @@ pub struct LogRow {
     pub coauthors: Vec<Coauthor>,
     /// Committer timestamp in milliseconds, which is what `jj log` shows.
     pub timestamp: i64,
+    /// Author timestamp in milliseconds: roughly when the change was created,
+    /// since jj keeps it through rewrites.
+    pub author_timestamp: i64,
     pub parent_count: usize,
     pub is_working_copy: bool,
     /// Other workspaces whose working copy is this commit.
@@ -530,6 +533,7 @@ async fn load_log_async(
             author_email: commit.author().email.clone(),
             coauthors: coauthors(commit.description()),
             timestamp: commit.committer().timestamp.timestamp.0,
+            author_timestamp: commit.author().timestamp.timestamp.0,
             parent_count: commit.parent_ids().len(),
             is_working_copy: wc_id.as_ref() == Some(commit.id()),
             workspaces: other_workspaces.remove(commit.id()).unwrap_or_default(),

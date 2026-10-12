@@ -36,7 +36,10 @@ export interface LogRow {
   authorName: string;
   authorEmail: string;
   coauthors: { name: string; email: string }[];
+  /** Committer time: when the commit was last rewritten. */
   timestamp: number;
+  /** Author time: roughly when the change was created. */
+  authorTimestamp: number;
   parentCount: number;
   isWorkingCopy: boolean;
   workspaces: string[];

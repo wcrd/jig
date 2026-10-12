@@ -98,6 +98,27 @@ export function applyPalette(id?: string) {
     `:root { ${laneVars(p.light)} }\n` + `:root[data-theme="dark"] { ${laneVars(p.dark)} }`;
 }
 
+export type GraphDate = "changed" | "created";
+
+const GRAPH_DATES: [GraphDate, string][] = [
+  ["changed", "Last changed"],
+  ["created", "Created"],
+];
+
+let graphDateChoice: GraphDate = storage("graphDate") === "created" ? "created" : "changed";
+
+/** Which time the graph's date column shows. */
+export function graphDate(): GraphDate {
+  return graphDateChoice;
+}
+
+/** Saves the graph's date column choice; open repo views re-render on the event. */
+function setGraphDate(choice: GraphDate) {
+  graphDateChoice = choice;
+  storage("graphDate", choice === "changed" ? null : choice);
+  window.dispatchEvent(new Event("graph-date-change"));
+}
+
 function swatches(colors: string[], cls: string): string {
   return `<span class="swatches ${cls}">${colors.map((c) => `<span style="background:${c}"></span>`).join("")}</span>`;
 }
@@ -121,6 +142,10 @@ export function showSettings() {
     `<div class="theme-options">` +
     THEMES.map(([id, name]) => `<button data-theme-choice="${id}"${id === theme ? ` class="on"` : ""}>${name}</button>`).join("") +
     `</div>` +
+    `<div class="list-section">Graph dates</div>` +
+    `<div class="theme-options graph-date-options">` +
+    GRAPH_DATES.map(([id, name]) => `<button data-graph-date="${id}"${id === graphDateChoice ? ` class="on"` : ""}>${name}</button>`).join("") +
+    `</div>` +
     `<div class="list-section">Graph colours</div>` +
     `<div class="palette-options">` +
     PALETTES.map(
@@ -140,6 +165,12 @@ export function showSettings() {
     if (input.name === "palette") applyPalette(input.value);
   });
   dialog.addEventListener("click", (event) => {
+    const dateButton = (event.target as HTMLElement).closest<HTMLElement>("[data-graph-date]");
+    if (dateButton) {
+      setGraphDate(dateButton.dataset.graphDate as GraphDate);
+      for (const b of dialog.querySelectorAll(".graph-date-options button")) b.classList.toggle("on", b === dateButton);
+      return;
+    }
     const button = (event.target as HTMLElement).closest<HTMLElement>("[data-theme-choice]");
     if (!button) return;
     applyTheme(button.dataset.themeChoice as Theme);

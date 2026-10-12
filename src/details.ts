@@ -1019,7 +1019,7 @@ export class DetailsPanel {
     const description = diff?.description ?? row.summary;
     const [summary, ...rest] = description.split("\n");
     const body = rest.join("\n").trim();
-    const author = diff?.author ?? { name: row.authorName, email: row.authorEmail, timestamp: row.timestamp };
+    const author = diff?.author ?? { name: row.authorName, email: row.authorEmail, timestamp: row.authorTimestamp ?? row.timestamp };
     const committer = diff?.committer;
 
     let html = `<div class="ci-message">`;
@@ -1031,7 +1031,7 @@ export class DetailsPanel {
 
     html += `<div class="ci-person">${avatarHtml(author.name, author.email, "large")}
       <div><div><b>${escapeHtml(author.name)}</b>${agentBadge(author.name, author.email)} <span class="muted">&lt;${escapeHtml(author.email)}&gt;</span></div>
-      <div class="muted">${escapeHtml(formatFullDate(author.timestamp))}</div></div></div>`;
+      </div></div>`;
     for (const co of row.coauthors) {
       html += `<div class="ci-person coauthor">${avatarHtml(co.name, co.email, "medium")}
         <div><b>${escapeHtml(co.name)}</b>${agentBadge(co.name, co.email)}${co.email ? ` <span class="muted">&lt;${escapeHtml(co.email)}&gt;</span>` : ""}
@@ -1042,9 +1042,9 @@ export class DetailsPanel {
     if (committer && (committer.email !== author.email || committer.name !== author.name)) {
       html += `<dt>Committer</dt><dd>${escapeHtml(committer.name)} <span class="muted">&lt;${escapeHtml(committer.email)}&gt;</span></dd>`;
     }
-    if (committer && committer.timestamp !== author.timestamp) {
-      html += `<dt>Committed</dt><dd>${escapeHtml(formatFullDate(committer.timestamp))}</dd>`;
-    }
+    // Author time is kept through rewrites, so it's roughly when the change began.
+    html += `<dt>Created</dt><dd>${escapeHtml(formatFullDate(author.timestamp))}</dd>`;
+    html += `<dt>Last changed</dt><dd>${escapeHtml(formatFullDate(committer?.timestamp ?? row.timestamp))}</dd>`;
     html += `<dt>Change</dt><dd class="mono"><span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen)}</span></dd>`;
     html += `<dt>Commit</dt><dd class="mono"><span class="id commit-id"><b>${row.commitId.slice(0, row.commitPrefixLen)}</b>${row.commitId.slice(row.commitPrefixLen)}</span></dd>`;
     if (diff && diff.parents.length > 0) {

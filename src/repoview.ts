@@ -171,6 +171,10 @@ export class RepoView {
       contextMenu: (item) => this.sidebarMenu(item),
     });
     this.ref("repo-name").textContent = this.name;
+    window.addEventListener("graph-date-change", () => {
+      this.clearRows();
+      this.render();
+    });
 
     this.revsetInput.value = this.revset;
     this.syncPreset();

@@ -4,6 +4,7 @@
 import { agentCornerHtml, agentFor, avatarHtml } from "./agents";
 import { escapeHtml, formatDate, formatFullDate, splitConventional } from "./format";
 import { ROW_HEIGHT, laneColor, textX, type Graph } from "./graph";
+import { graphDate } from "./settings";
 import type { LogRow, RefLabel } from "./types";
 
 const CLOUD_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.7.9A2.6 2.6 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
@@ -95,7 +96,16 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Gr
     authorHtml(row) +
     `<div class="change" title="Change ID ${row.changeId}${row.divergent ? " (divergent)" : ""}">${idHtml(row.changeId, row.changePrefixLen, "change-id")}${row.divergent ? `<span class="divergent-mark">??</span>` : ""}</div>` +
     `<div class="commit" title="Commit ID ${row.commitId}">${idHtml(row.commitId, row.commitPrefixLen, "commit-id")}</div>` +
-    `<div class="date" title="${escapeHtml(formatFullDate(row.timestamp))}">${escapeHtml(formatDate(row.timestamp))}</div>`;
+    dateHtml(row);
+}
+
+/** The time Settings picks, with both in the tooltip. */
+function dateHtml(row: LogRow): string {
+  // Older fixtures have no author time.
+  const created = row.authorTimestamp ?? row.timestamp;
+  const shown = graphDate() === "created" ? created : row.timestamp;
+  const title = `Created ${formatFullDate(created)}\nLast changed ${formatFullDate(row.timestamp)}`;
+  return `<div class="date" title="${escapeHtml(title)}">${escapeHtml(formatDate(shown))}</div>`;
 }
 
 /**
