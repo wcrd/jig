@@ -42,6 +42,8 @@ CI=true npm run tauri build
 
 If a build is interrupted, its image can stay mounted and break the next one; `hdiutil info` lists it and `hdiutil detach` ejects it.
 
+`bundle.macOS.signingIdentity` is `"-"` so the bundle gets an ad-hoc signature carrying its identifier, `dev.wcrd.jig`. Without it the app only has the linker's signature, whose identifier is `jig-<hash>`. macOS then never matches the app to its Local Network permission, and fetches and pushes to remotes on the LAN fail with "No route to host".
+
 ## Playground repo
 
 `scripts/make-playground.sh` builds a throwaway repo at `../jig-playground/repo` with a local remote, several authors, merges, bookmarks, a conflict, a divergent change and a second workspace. Re-run it to reset.
