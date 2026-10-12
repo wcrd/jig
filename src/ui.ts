@@ -122,6 +122,17 @@ export async function runWithToast(
   return output.success;
 }
 
+/** A short message in a toast that fades out. */
+export function notify(message: string) {
+  const toast = document.createElement("div");
+  toast.className = "toast";
+  toast.innerHTML = `<div class="toast-title">${escapeHtml(message)}<button class="toast-close" title="Dismiss">×</button></div>`;
+  toasts.appendChild(toast);
+  const dismiss = () => toast.remove();
+  toast.querySelector(".toast-close")!.addEventListener("click", dismiss);
+  setTimeout(dismiss, 8000);
+}
+
 export async function copy(text: string) {
   try {
     await navigator.clipboard.writeText(text);

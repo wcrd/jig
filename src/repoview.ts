@@ -12,7 +12,7 @@ import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
 import { escapeHtml, remoteWebUrl } from "./format";
-import { type MenuEntry, confirm, copy, editText, prompt, runWithToast, showHelp, showMenu } from "./ui";
+import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
 import { showSettings } from "./settings";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
@@ -38,6 +38,38 @@ type Pending =
   /** Cherry-pick (jj duplicate) or revert, placed relative to a target. */
   | { kind: "duplicate"; source: number; placement: Placement; target: number }
   | { kind: "revert"; source: number; placement: Placement; target: number };
+
+/**
+ * The pending operation with its rows renumbered by `find`, for a reloaded
+ * log. Marks whose commits are gone are dropped; null if the source or
+ * target is gone.
+ */
+function remapPending(p: Pending, find: (index: number) => number | undefined): Pending | null {
+  const found = (indexes: Iterable<number>) => [...indexes].map(find).filter((i) => i !== undefined);
+  const source = "source" in p ? find(p.source) : undefined;
+  switch (p.kind) {
+    case "abandon":
+      return { ...p, marked: new Set(found(p.marked)) };
+    case "parents":
+      return source === undefined ? null : { ...p, source, marked: found(p.marked) };
+    case "split":
+      return source === undefined ? null : { ...p, source };
+    default: {
+      const target = find(p.target);
+      return source === undefined || target === undefined ? null : { ...p, source, target };
+    }
+  }
+}
+
+const PENDING_LABELS: Record<Pending["kind"], string> = {
+  rebase: "Rebase",
+  squash: "Squash",
+  abandon: "Abandon",
+  parents: "Set parents",
+  split: "Split",
+  duplicate: "Copy",
+  revert: "Revert",
+};
 
 const MODE_LABELS: Record<RebaseMode, string> = {
   revision: "This commit",
@@ -287,6 +319,7 @@ export class RepoView {
     if (this.loading) return;
     this.loading = true;
     const previousIndex = this.selected;
+    const previousRows = this.log?.rows ?? [];
     const previousChange = this.log && this.selected >= 0 ? this.log.rows[this.selected]?.changeId : null;
     const previousScroll = this.scroller.scrollTop;
     this.statusEl.textContent = "Loading…";
@@ -296,7 +329,22 @@ export class RepoView {
       this.log = next;
       this.graph = new Graph(next.rows, next.edges);
       this.relations = new Relations(next.rows.length, next.edges);
-      this.pending = null;
+      // Carry an operation in progress over to the reloaded rows: by commit
+      // ID, or by change ID if jj rewrote the commit meanwhile.
+      if (this.pending) {
+        const byCommit = new Map(next.rows.map((r, i) => [r.commitId, i]));
+        const byChange = new Map(next.rows.map((r, i) => [r.changeId, i]));
+        const find = (i: number) => {
+          const row = previousRows[i];
+          return row && (byCommit.get(row.commitId) ?? byChange.get(row.changeId));
+        };
+        const kind = this.pending.kind;
+        this.pending = remapPending(this.pending, find);
+        if (!this.pending) {
+          if (kind === "split") this.details.endSplit();
+          notify(`${PENDING_LABELS[kind]} cancelled: its commits are no longer in the graph`);
+        }
+      }
       this.updateModebar();
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
       this.showRepoName(next);
