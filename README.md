@@ -43,4 +43,10 @@ Jig isn't notarized yet, so macOS will refuse to open it the first time. Clear t
 xattr -dr com.apple.quarantine /Applications/Jig.app
 ```
 
+To open a repo from a terminal, or into a Jig that's already running, run the following command. You can also drop a folder on Jig's Dock icon.
+
+```bash
+open . -a Jig
+```
+
 To build from source for other systems, see [DEVELOPMENT.md](DEVELOPMENT.md).

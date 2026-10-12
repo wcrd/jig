@@ -22,7 +22,7 @@ npm install
 npm run tauri dev
 ```
 
-Jig opens the repo given as its first argument, then `$JIG_REPO`, then the current directory. Under `tauri dev` the environment variable is easiest:
+Jig opens a folder macOS hands it (`open -a`, a Dock drop), then the repo given as its first argument, then `$JIG_REPO`, then the current directory. Under `tauri dev` the environment variable is easiest:
 
 ```bash
 JIG_REPO=/path/to/repo npm run tauri dev

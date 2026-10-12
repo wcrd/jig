@@ -17,6 +17,11 @@ use tauri::State;
 #[derive(Default)]
 struct OpenRepos(Mutex<HashMap<PathBuf, Arc<repo::OpenRepo>>>);
 
+/// A folder handed over by macOS (`open -a Jig.app <dir>`, or a drop on the
+/// Dock icon) before the frontend was ready to hear about it.
+#[derive(Default)]
+struct OpenedRepo(Mutex<Option<String>>);
+
 /// Rows beyond this are dropped; the frontend says the view is truncated.
 const DEFAULT_LIMIT: usize = 20_000;
 
@@ -664,7 +669,10 @@ struct InitialRepo {
 
 /// The repo to open at startup, if any.
 #[tauri::command]
-fn initial_repo() -> Option<InitialRepo> {
+fn initial_repo(opened: State<'_, OpenedRepo>) -> Option<InitialRepo> {
+    if let Some(path) = opened.0.lock().unwrap().take() {
+        return Some(InitialRepo { path, explicit: true });
+    }
     let explicit = std::env::args()
         .skip(1)
         .find(|a| !a.starts_with('-'))
@@ -681,10 +689,19 @@ fn initial_repo() -> Option<InitialRepo> {
     })
 }
 
+/// The workspace a folder opened from Finder or `open -a` belongs to; the
+/// folder itself when it isn't in one, so the tab shows why it can't load.
+fn opened_repo_path(url: &tauri::Url) -> Option<String> {
+    let path = std::fs::canonicalize(url.to_file_path().ok()?).ok()?;
+    let root = repo::find_workspace_root(&path).unwrap_or(path);
+    Some(root.display().to_string())
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(OpenRepos::default())
+        .manage(OpenedRepo::default())
         .invoke_handler(tauri::generate_handler![
             load_log,
             commit_diff,
@@ -730,6 +747,20 @@ pub fn run() {
             jj_op_restore,
             jj_op_revert
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Opened { urls } = event {
+                use tauri::{Emitter, Manager};
+                for path in urls.iter().filter_map(opened_repo_path) {
+                    // At launch nothing is listening yet, so `initial_repo`
+                    // picks it up; once running, the event opens the tab.
+                    *app.state::<OpenedRepo>().0.lock().unwrap() = Some(path.clone());
+                    let _ = app.emit("open-repo", path);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        });
 }

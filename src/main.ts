@@ -2,7 +2,7 @@
 
 import { open } from "@tauri-apps/plugin-dialog";
 
-import { fetchInitialRepo, isTauri, storage } from "./api";
+import { fetchInitialRepo, isTauri, onOpenRepo, storage } from "./api";
 import { escapeHtml } from "./format";
 import { RepoView } from "./repoview";
 import { applyPalette, applyTheme, showSettings } from "./settings";
@@ -186,6 +186,7 @@ async function start() {
   const activePath = storage("activeTab");
   for (const path of saved) openTab(path, { focus: path === activePath });
 
+  await onOpenRepo((path) => openTab(path));
   const initial = await fetchInitialRepo();
   if (initial && (initial.explicit || views.length === 0)) openTab(initial.path);
   if (!active && views.length > 0) activate(views[0]);
