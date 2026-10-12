@@ -334,19 +334,30 @@ async fn jj_push_new_bookmark(
     .await
 }
 
+/// Fetches, then fetches every tag: a plain fetch only brings tags on the
+/// history it fetched, and `--tag` on its own skips the branches.
 #[tauri::command]
 async fn jj_git_fetch(
     path: String,
     remote: Option<String>,
 ) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || match remote {
-        Some(remote) => {
+    jj_in_many(path, move || {
+        let mut fetch = jj_cli::strings(&["git", "fetch"]);
+        if let Some(remote) = remote {
             jj_cli::validate_ref_name(&remote)?;
-            Ok(jj_cli::strings(&["git", "fetch", &format!("--remote={remote}")]))
+            fetch.push(format!("--remote={remote}"));
         }
-        None => Ok(jj_cli::strings(&["git", "fetch"])),
+        let mut tags = fetch.clone();
+        tags.push("--tag=*".to_owned());
+        Ok(vec![fetch, tags])
     })
     .await
+}
+
+/// Imports refs changed outside jj, such as by the git CLI.
+#[tauri::command]
+async fn jj_git_import(path: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, || Ok(jj_cli::strings(&["git", "import"]))).await
 }
 
 #[tauri::command]
@@ -603,6 +614,7 @@ pub fn run() {
             jj_bookmark_untrack,
             jj_push_new_bookmark,
             jj_git_fetch,
+            jj_git_import,
             open_url,
             jj_git_push,
             jj_rebase,

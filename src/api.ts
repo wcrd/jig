@@ -87,6 +87,7 @@ export const jj = {
   pushNewBookmark: (path: string, name: string, remote: string) =>
     invoke<CommandOutput>("jj_push_new_bookmark", { path, name, remote }),
   gitFetch: (path: string, remote: string | null = null) => invoke<CommandOutput>("jj_git_fetch", { path, remote }),
+  gitImport: (path: string) => invoke<CommandOutput>("jj_git_import", { path }),
   gitPush: (path: string, bookmark: string | null = null) => invoke<CommandOutput>("jj_git_push", { path, bookmark }),
   rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>
     invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement }),

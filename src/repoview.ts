@@ -227,7 +227,7 @@ export class RepoView {
       if ("placement" in p && button.dataset.placement) p.placement = button.dataset.placement as Placement;
       this.updatePending();
     });
-    this.ref("refresh").addEventListener("click", () => this.load({ keepPosition: true }));
+    this.ref("refresh").addEventListener("click", () => this.refresh());
     this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
     this.ref("push").addEventListener("click", () => this.act("Push", () => jj.gitPush(this.path)));
     this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
@@ -271,6 +271,16 @@ export class RepoView {
     this.splitter(this.ref("split-sidebar"), this.ref("sidebar"), "columns", "sidebarWidth", 160, 0.4);
     this.splitter(this.ref("split-details"), this.ref("details"), "rows", "detailsHeight", 120, 0.85);
     this.splitter(this.ref("split-info"), this.ref("info-pane"), "columns", "infoWidth", 220, 0.6);
+  }
+
+  /**
+   * Reloads after importing git refs, so tags and branches changed with the
+   * git CLI show up. Fails quietly in repos without a git backend.
+   */
+  private async refresh() {
+    this.statusEl.textContent = "Loading…";
+    await jj.gitImport(this.path).catch(() => {});
+    await this.load({ keepPosition: true });
   }
 
   async load({ keepPosition = false } = {}) {
