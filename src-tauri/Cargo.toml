@@ -26,6 +26,7 @@ futures = "0.3"
 jj-lib = "=0.40.0"
 jj-cli = "=0.40.0"
 bstr = "1"
+trash = "5.2.9"
 
 # Optimise dependencies (jj-lib's diffing especially) even in dev builds.
 [profile.dev.package."*"]

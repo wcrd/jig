@@ -18,11 +18,14 @@ export interface SidebarItem {
   tracked?: boolean;
   /** For a remote itself: its fetch URL. */
   url?: string | null;
+  /** For a workspace: its folder, if known. */
+  path?: string | null;
 }
 
 export interface SidebarCallbacks {
   select(item: SidebarItem): void;
   contextMenu(item: SidebarItem): void;
+  addWorkspace(): void;
 }
 
 const ICONS = {
@@ -36,6 +39,7 @@ ICONS.remoteRoot = ICONS.remote;
 const LINK_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.5 2.5 0 0 1 3.5 3.5l-1 1M9 11.5l-1 1a2.5 2.5 0 0 1-3.5-3.5l1-1" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>`;
 const LIST_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const TREE_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h5M6 8h7M6 12.5h7M4 4v8.5h2M4 8h2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const PLUS_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
 const CHEVRON = `<svg class="chevron" viewBox="0 0 10 10" width="9" height="9"><path d="M3 2l3.5 3L3 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 
 export class Sidebar {
@@ -75,6 +79,7 @@ export class Sidebar {
     this.list.addEventListener("mousedown", (event) => {
       if (event.button !== 0) return;
       const target = event.target as HTMLElement;
+      if (target.closest("[data-add-workspace]")) return callbacks.addWorkspace();
       const section = target.closest<HTMLElement>("[data-section-toggle]");
       if (section) return this.toggleSection(section.dataset.sectionToggle!);
       const folder = target.closest<HTMLElement>("[data-folder]");
@@ -132,7 +137,7 @@ export class Sidebar {
 
     const workspaces: SidebarItem[] = data.workspaces
       .filter((w) => matches(w.name))
-      .map((w) => ({ kind: "workspace", name: w.name, commitId: w.commitId, tracked: w.current }));
+      .map((w) => ({ kind: "workspace", name: w.name, commitId: w.commitId, tracked: w.current, path: w.path }));
     const bookmarks: SidebarItem[] = data.bookmarks
       .filter((b) => b.commitId && matches(b.name))
       .map((b) => ({ kind: "bookmark", name: b.name, commitId: b.commitId, bookmark: b }));
@@ -186,8 +191,9 @@ export class Sidebar {
   private section(id: Section, title: string, count: number, body: () => string): string {
     if (count === 0 && this.filter) return "";
     const open = this.filter !== "" || !this.collapsedSections.has(id);
+    const add = id === "workspaces" ? `<button class="section-add" data-add-workspace title="Add Workspace…">${PLUS_ICON}</button>` : "";
     return (
-      `<div class="sidebar-section${open ? " open" : ""}" data-section-toggle="${id}">${CHEVRON}<span>${title}</span><span class="count">${count}</span></div>` +
+      `<div class="sidebar-section${open ? " open" : ""}" data-section-toggle="${id}">${CHEVRON}<span>${title}</span><span class="count">${count}</span>${add}</div>` +
       (open ? body() : "")
     );
   }
@@ -219,7 +225,8 @@ export class Sidebar {
     return items
       .map((item) => {
         const index = this.items.push(item) - 1;
-        return `<div class="tree-row file sidebar-item" data-item="${index}" style="padding-left:${24 + depth * 14}px">${this.itemContent(item, item.name)}</div>`;
+        const title = item.path ? ` title="${escapeHtml(item.path)}"` : "";
+        return `<div class="tree-row file sidebar-item" data-item="${index}" style="padding-left:${24 + depth * 14}px"${title}>${this.itemContent(item, item.name)}</div>`;
       })
       .join("");
   }

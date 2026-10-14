@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 use anyhow::{Context, Result, anyhow, bail};
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CommandOutput {
     pub success: bool,
@@ -406,6 +406,143 @@ pub fn resolve_side_args(revision: &str, file_path: &str, side: &str) -> Result<
     ])
 }
 
+/// Splits a command line into words as a shell would: whitespace separates
+/// them, and quotes and backslashes keep it in one. Nothing is expanded.
+pub fn split_words(line: &str) -> Result<Vec<String>> {
+    let mut words = Vec::new();
+    let mut word: Option<String> = None;
+    let mut chars = line.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            c if c.is_whitespace() => words.extend(word.take()),
+            '\'' => {
+                let w = word.get_or_insert_with(String::new);
+                loop {
+                    match chars.next() {
+                        Some('\'') => break,
+                        Some(c) => w.push(c),
+                        None => bail!("unclosed ' quote"),
+                    }
+                }
+            }
+            '"' => {
+                let w = word.get_or_insert_with(String::new);
+                loop {
+                    match chars.next() {
+                        Some('"') => break,
+                        // Inside double quotes a backslash only escapes " and \.
+                        Some('\\') => match chars.next() {
+                            Some(c @ ('"' | '\\')) => w.push(c),
+                            Some(c) => {
+                                w.push('\\');
+                                w.push(c);
+                            }
+                            None => bail!("unclosed \" quote"),
+                        },
+                        Some(c) => w.push(c),
+                        None => bail!("unclosed \" quote"),
+                    }
+                }
+            }
+            '\\' => match chars.next() {
+                Some(c) => word.get_or_insert_with(String::new).push(c),
+                None => bail!("trailing backslash"),
+            },
+            c => word.get_or_insert_with(String::new).push(c),
+        }
+    }
+    words.extend(word);
+    Ok(words)
+}
+
+/// The args for a command line typed by the user, with a leading `jj`
+/// dropped and `$change_id` / `$commit_id` standing for the selected commit.
+pub fn exec_args(line: &str, change_id: Option<&str>, commit_id: Option<&str>) -> Result<Vec<String>> {
+    let mut words = split_words(line)?;
+    if words.first().is_some_and(|w| w == "jj") {
+        words.remove(0);
+    }
+    if words.is_empty() {
+        bail!("no command given");
+    }
+    for word in &mut words {
+        for (name, value) in [("$change_id", change_id), ("$commit_id", commit_id)] {
+            if word.contains(name) {
+                let value = value.ok_or_else(|| anyhow!("{name} needs a selected commit"))?;
+                *word = word.replace(name, value);
+            }
+        }
+    }
+    Ok(words)
+}
+
+/// `jj workspace add --name <name> [-r <revision>] -- <destination>`.
+pub fn workspace_add_args(name: &str, destination: &Path, revision: Option<&str>) -> Result<Vec<String>> {
+    validate_ref_name(name)?;
+    let destination = destination.to_str().ok_or_else(|| anyhow!("non-UTF-8 destination"))?;
+    let mut args = vec!["workspace".to_owned(), "add".to_owned(), format!("--name={name}")];
+    if let Some(revision) = revision {
+        validate_revision(revision)?;
+        args.extend(strings(&["-r", revision]));
+    }
+    args.extend(strings(&["--", destination]));
+    Ok(args)
+}
+
+/// Where a new workspace goes when no folder is given: beside the repo's
+/// folder, named after both, e.g. `~/code/jig-review` for `~/code/jig`.
+pub fn default_workspace_dir(root: &Path, name: &str) -> Result<PathBuf> {
+    let parent = root.parent().ok_or_else(|| anyhow!("the repo has no parent folder"))?;
+    let base = root.file_name().ok_or_else(|| anyhow!("the repo has no folder name"))?;
+    Ok(parent.join(format!("{}-{name}", base.to_string_lossy())))
+}
+
+/// Forgets workspace `name` and moves its folder to the Trash. Refuses the
+/// workspace at `root` (or one containing it), and any folder holding the
+/// repo itself rather than pointing at it.
+pub fn delete_workspace(root: &Path, name: &str) -> Result<CommandOutput> {
+    validate_ref_name(name)?;
+    let located = run(root, &["workspace", "root", &format!("--name={name}")])?;
+    let folder = located.success.then(|| PathBuf::from(located.stdout.trim()));
+    if let Some(folder) = &folder {
+        if std::fs::canonicalize(root)?.starts_with(folder) {
+            bail!("{} holds this workspace, so it can't be deleted from here", folder.display());
+        }
+        // A secondary workspace's `.jj/repo` is a file pointing at the repo;
+        // a directory there is the repo itself.
+        if !folder.join(".jj/repo").is_file() {
+            bail!("{} holds the repository itself, so it won't be deleted", folder.display());
+        }
+    }
+    let mut combined = CommandOutput::empty();
+    if !combined.append(run(root, &["workspace", "forget", "--", name])?) {
+        return Ok(combined);
+    }
+    match folder {
+        Some(folder) => {
+            combined.command += &format!(" && move {} to the Trash", folder.display());
+            if let Err(e) = move_to_trash(&folder) {
+                combined.success = false;
+                combined.stderr += &format!("Couldn't move {} to the Trash: {e}\n", folder.display());
+            }
+        }
+        None => combined.stdout += "Its folder wasn't found, so the workspace was only forgotten.\n",
+    }
+    Ok(combined)
+}
+
+fn move_to_trash(path: &Path) -> Result<(), trash::Error> {
+    #[allow(unused_mut)]
+    let mut trash = trash::TrashContext::default();
+    #[cfg(target_os = "macos")]
+    {
+        use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        // Finder would need permission to be scripted.
+        trash.set_delete_method(DeleteMethod::NsFileManager);
+    }
+    trash.delete(path)
+}
+
 pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<String>> {
     validate_revision(revision)?;
     validate_revision(into)?;
@@ -432,6 +569,15 @@ pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `jj git init` in `dir`; false when jj isn't installed. Not [`run`],
+    /// whose `-R` needs a repo to exist already.
+    fn init_repo(dir: &Path) -> bool {
+        let Ok(jj) = jj_binary() else { return false };
+        let out = Command::new(jj).args(["git", "init"]).current_dir(dir).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        true
+    }
 
     #[test]
     fn placed_arg_building() {
@@ -472,15 +618,13 @@ mod tests {
     fn runs_jj_in_a_throwaway_repo() {
         let dir = std::env::temp_dir().join(format!("jig-cli-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let init = run(&dir, &["git", "init"]);
-        if let Ok(init) = init {
-            if init.success {
-                let out = run(&dir, &["bookmark", "create", "foo", "-r", "@"]).unwrap();
-                assert!(out.success, "{}", out.stderr);
-                assert_eq!(out.command, "jj bookmark create foo -r @");
-                let bad = run(&dir, &["bookmark", "delete", "nope"]).unwrap();
-                assert!(!bad.success);
-            }
+        if init_repo(&dir) {
+            let out = run(&dir, &["bookmark", "create", "foo", "-r", "@"]).unwrap();
+            assert!(out.success, "{}", out.stderr);
+            assert_eq!(out.command, "jj bookmark create foo -r @");
+            // It exists now, so creating it again fails.
+            let bad = run(&dir, &["bookmark", "create", "foo", "-r", "@"]).unwrap();
+            assert!(!bad.success);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -594,6 +738,66 @@ mod tests {
     }
 
     #[test]
+    fn word_splitting() {
+        assert_eq!(split_words("  log -r  'a | b' ").unwrap(), v(&["log", "-r", "a | b"]));
+        assert_eq!(split_words(r#"describe -m "say \"hi\" \n""#).unwrap(), v(&["describe", "-m", r#"say "hi" \n"#]));
+        assert_eq!(split_words(r"a\ b c''d '' ").unwrap(), v(&["a b", "cd", ""]));
+        assert_eq!(split_words("").unwrap(), Vec::<String>::new());
+        for bad in ["'open", "\"open", "end\\"] {
+            assert!(split_words(bad).is_err(), "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn exec_arg_building() {
+        assert_eq!(exec_args("jj my-alias", None, None).unwrap(), v(&["my-alias"]));
+        assert_eq!(
+            exec_args("new $change_id -m 'on $commit_id'", Some("kxyz"), Some("ab12")).unwrap(),
+            v(&["new", "kxyz", "-m", "on ab12"])
+        );
+        assert!(exec_args("jj", None, None).is_err());
+        assert!(exec_args("  ", None, None).is_err());
+        assert!(exec_args("edit $change_id", None, None).is_err());
+    }
+
+    #[test]
+    fn workspace_arg_building() {
+        assert_eq!(
+            workspace_add_args("review", Path::new("/x/jig-review"), Some("a1")).unwrap(),
+            v(&["workspace", "add", "--name=review", "-r", "a1", "--", "/x/jig-review"])
+        );
+        assert_eq!(workspace_add_args("w", Path::new("-w"), None).unwrap(), v(&["workspace", "add", "--name=w", "--", "-w"]));
+        assert!(workspace_add_args("-w", Path::new("/x"), None).is_err());
+        assert!(workspace_add_args("w", Path::new("/x"), Some("@")).is_err());
+        assert_eq!(default_workspace_dir(Path::new("/code/jig"), "review").unwrap(), PathBuf::from("/code/jig-review"));
+    }
+
+    #[test]
+    fn workspace_delete_refusals_in_a_throwaway_repo() {
+        let base = std::env::temp_dir().join(format!("jig-cli-ws-{}", std::process::id()));
+        let dir = base.join("repo");
+        std::fs::create_dir_all(&dir).unwrap();
+        if init_repo(&dir) {
+            let add = workspace_add_args("second", &base.join("second"), None).unwrap();
+            let add: Vec<&str> = add.iter().map(String::as_str).collect();
+            assert!(run(&dir, &add).unwrap().success);
+            // The default workspace holds the repo; the second can't delete itself.
+            let err = delete_workspace(&base.join("second"), "default").unwrap_err();
+            assert!(err.to_string().contains("holds the repository itself"), "{err}");
+            let err = delete_workspace(&base.join("second"), "second").unwrap_err();
+            assert!(err.to_string().contains("holds this workspace"), "{err}");
+            // A folder that's gone is only forgotten.
+            std::fs::remove_dir_all(base.join("second")).unwrap();
+            let out = delete_workspace(&dir, "second").unwrap();
+            assert!(out.success, "{}", out.stderr);
+            assert!(out.stdout.contains("only forgotten"));
+            let list = run(&dir, &["workspace", "list", "-T", "name ++ \"\\n\""]).unwrap();
+            assert_eq!(list.stdout.trim(), "default");
+        }
+        let _ = std::fs::remove_dir_all(&base);
+    }
+
+    #[test]
     fn squash_arg_building() {
         assert_eq!(
             squash_args("a1", "b2", &[]).unwrap(),
@@ -612,8 +816,7 @@ mod tests {
     fn rebase_and_undo_in_a_throwaway_repo() {
         let dir = std::env::temp_dir().join(format!("jig-cli-rebase-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        let ok = matches!(run(&dir, &["git", "init"]), Ok(o) if o.success);
-        if ok {
+        if init_repo(&dir) {
             let commit_id = |rev: &str| {
                 let o = run(&dir, &["log", "--no-graph", "-r", rev, "-T", "commit_id"]).unwrap();
                 assert!(o.success, "{}", o.stderr);

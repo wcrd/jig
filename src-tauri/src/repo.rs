@@ -37,6 +37,8 @@ use jj_lib::workspace::{
     DefaultWorkspaceLoaderFactory, Workspace, WorkspaceLoaderFactory,
     default_working_copy_factories,
 };
+use jj_lib::ref_name::WorkspaceName;
+use jj_lib::workspace_store::{SimpleWorkspaceStore, WorkspaceStore as _};
 use serde::Serialize;
 
 use crate::layout::{self, EdgeKind, EdgeLayout, NodeInput};
@@ -118,6 +120,8 @@ pub struct SidebarWorkspace {
     pub name: String,
     pub commit_id: String,
     pub current: bool,
+    /// The workspace's folder, if jj recorded one and it's still there.
+    pub path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -569,7 +573,7 @@ async fn load_log_async(
         max_width: layout.max_width,
         truncated,
         elapsed_ms: started.elapsed().as_millis() as u64,
-        sidebar: build_sidebar(&repo, &workspace.workspace_name().as_symbol().to_string()),
+        sidebar: build_sidebar(&repo, &workspace),
     };
     Ok((
         response,
@@ -853,7 +857,7 @@ pub fn op_changes(path: &Path, op_id: &str) -> Result<OpChanges> {
 
 /// Everything the sidebar lists, read straight from the view so it doesn't
 /// depend on which commits the revset happens to show.
-fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
+fn build_sidebar(repo: &ReadonlyRepo, workspace: &Workspace) -> Sidebar {
     let view = repo.view();
     let mut bookmarks: Vec<SidebarBookmark> = view
         .bookmarks()
@@ -912,15 +916,35 @@ fn build_sidebar(repo: &ReadonlyRepo, current_workspace: &str) -> Sidebar {
     let mut workspaces: Vec<SidebarWorkspace> = view
         .wc_commit_ids()
         .iter()
-        .map(|(name, id)| SidebarWorkspace {
-            name: name.as_symbol().to_string(),
-            commit_id: id.hex(),
-            current: name.as_symbol().to_string() == current_workspace,
+        .map(|(name, id)| {
+            let current = *name == *workspace.workspace_name();
+            let path = if current {
+                Some(workspace.workspace_root().to_path_buf())
+            } else {
+                workspace_path(workspace.repo_path(), name)
+            };
+            SidebarWorkspace {
+                name: name.as_symbol().to_string(),
+                commit_id: id.hex(),
+                current,
+                path: path.map(|p| p.display().to_string()),
+            }
         })
         .collect();
     workspaces.sort_by(|a, b| b.current.cmp(&a.current).then_with(|| a.name.cmp(&b.name)));
 
     Sidebar { bookmarks, tags, workspaces, remotes: git_remotes(repo) }
+}
+
+/// The folder jj recorded for a workspace, if it's still there.
+fn workspace_path(repo_path: &Path, name: &WorkspaceName) -> Option<PathBuf> {
+    // Loading the store creates it when it's missing; this only reads.
+    if !repo_path.join("workspace_store/index").is_file() {
+        return None;
+    }
+    let store = SimpleWorkspaceStore::load(repo_path).ok()?;
+    let path = store.get_workspace_path(name).ok()??;
+    std::fs::canonicalize(repo_path.join(path)).ok()
 }
 
 const AHEAD_BEHIND_CAP: usize = 100;

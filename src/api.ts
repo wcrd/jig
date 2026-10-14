@@ -127,6 +127,14 @@ export const jj = {
     invoke<CommandOutput>("jj_duplicate_to", { path, revisions, target, placement }),
   revert: (path: string, revisions: string[], target: string, placement: string) =>
     invoke<CommandOutput>("jj_revert", { path, revisions, target, placement }),
+  /** A command line typed by the user; `$change_id` / `$commit_id` stand for the selected commit. */
+  exec: (path: string, line: string, changeId: string | null, commitId: string | null) =>
+    invoke<CommandOutput>("jj_exec", { path, line, changeId, commitId }),
+  /** `destination` is relative to the repo's folder; null puts it beside the repo's folder. */
+  workspaceAdd: (path: string, name: string, destination: string | null, revision: string | null) =>
+    invoke<CommandOutput>("jj_workspace_add", { path, name, destination, revision }),
+  workspaceForget: (path: string, name: string) => invoke<CommandOutput>("jj_workspace_forget", { path, name }),
+  workspaceDelete: (path: string, name: string) => invoke<CommandOutput>("jj_workspace_delete", { path, name }),
   undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
   redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };

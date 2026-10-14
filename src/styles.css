@@ -1487,6 +1487,24 @@ body > .empty {
   font-weight: 500;
 }
 
+.section-add {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  margin-right: -4px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--muted);
+}
+
+.section-add:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
 .sidebar-item {
   height: 22px;
   font-size: 12.5px;
@@ -1599,6 +1617,17 @@ dialog.prompt input:focus {
   background: var(--bg);
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.15);
   font-size: 12px;
+}
+
+/* Output to read, such as `jj log` from the command prompt: unwrapped. */
+.toast.wide {
+  align-self: flex-end;
+  width: min(760px, calc(100vw - 28px));
+}
+
+.toast.wide .toast-output {
+  max-height: 50vh;
+  white-space: pre;
 }
 
 .toast.failure {

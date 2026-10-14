@@ -84,7 +84,8 @@ export interface Sidebar {
   bookmarks: SidebarBookmark[];
   /** `remotes`: those that had the tag as of the last fetch. */
   tags: { name: string; commitId: string | null; remotes: string[] }[];
-  workspaces: { name: string; commitId: string; current: boolean }[];
+  /** `path`: the workspace's folder, if jj recorded one and it's still there. */
+  workspaces: { name: string; commitId: string; current: boolean; path: string | null }[];
 }
 
 export interface CommandOutput {

@@ -568,6 +568,61 @@ async fn jj_squash(
     jj_in(path, move || jj_cli::squash_args(&revision, &into, &paths)).await
 }
 
+/// Runs a command line typed by the user (`:`), so their aliases work too.
+#[tauri::command]
+async fn jj_exec(
+    path: String,
+    line: String,
+    change_id: Option<String>,
+    commit_id: Option<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || jj_cli::exec_args(&line, change_id.as_deref(), commit_id.as_deref())).await
+}
+
+/// Adds a workspace at `destination` (relative to the repo's folder), or
+/// beside the repo's folder when none is given.
+#[tauri::command]
+async fn jj_workspace_add(
+    path: String,
+    name: String,
+    destination: Option<String>,
+    revision: Option<String>,
+) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        let destination = match destination {
+            Some(d) => root.join(d),
+            None => jj_cli::default_workspace_dir(&root, &name)?,
+        };
+        let args = jj_cli::workspace_add_args(&name, &destination, revision.as_deref())?;
+        let args: Vec<&str> = args.iter().map(String::as_str).collect();
+        jj_cli::run(&root, &args)
+    })
+    .await
+}
+
+/// Stops tracking a workspace; its folder is left alone.
+#[tauri::command]
+async fn jj_workspace_forget(path: String, name: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        jj_cli::validate_ref_name(&name)?;
+        Ok(jj_cli::strings(&["workspace", "forget", "--", &name]))
+    })
+    .await
+}
+
+/// Forgets a workspace and moves its folder to the Trash.
+#[tauri::command]
+async fn jj_workspace_delete(path: String, name: String) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = repo::find_workspace_root(&PathBuf::from(&path))
+            .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        jj_cli::delete_workspace(&root, &name)
+    })
+    .await
+}
+
 #[tauri::command]
 async fn op_log(path: String, limit: Option<usize>) -> Result<Vec<repo::OpEntry>, String> {
     blocking(move || repo::op_log(&PathBuf::from(path), limit.unwrap_or(200))).await
@@ -745,7 +800,11 @@ pub fn run() {
             op_log,
             op_changes,
             jj_op_restore,
-            jj_op_revert
+            jj_op_revert,
+            jj_exec,
+            jj_workspace_add,
+            jj_workspace_forget,
+            jj_workspace_delete
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

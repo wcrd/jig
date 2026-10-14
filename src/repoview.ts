@@ -20,6 +20,8 @@ const OVERSCAN = 8;
 /** Wait this long after the selection settles before loading its diff. */
 const DETAILS_DELAY_MS = 40;
 const DIFF_CACHE_SIZE = 64;
+/** Command lines kept for ↑ / ↓ in the `:` prompt. */
+const EXEC_HISTORY_SIZE = 50;
 
 type RebaseMode = "revision" | "source" | "branch";
 type Placement = "onto" | "after" | "before";
@@ -83,6 +85,8 @@ export class RepoView {
   /** Shown in the tab; the folder name until the log loads. */
   name: string;
   onChange: () => void = () => {};
+  /** Opens another repo or workspace in a tab. */
+  onOpen: (path: string) => void = () => {};
 
   /** The revset the user asked for; empty means the configured default. */
   private revset: string;
@@ -201,6 +205,7 @@ export class RepoView {
     this.sidebar = new Sidebar(this.ref("sidebar"), {
       select: (item) => this.selectCommit(item.commitId, item.name),
       contextMenu: (item) => this.sidebarMenu(item),
+      addWorkspace: () => this.addWorkspace(null),
     });
     this.ref("repo-name").textContent = this.name;
     window.addEventListener("graph-date-change", () => {
@@ -574,6 +579,9 @@ export class RepoView {
         return true;
       case "?":
         showHelp();
+        return true;
+      case ":":
+        this.execCommand(this.selected >= 0 ? rows[this.selected] : null);
         return true;
       case "@": {
         const wc = rows.findIndex((r) => r.isWorkingCopy);
@@ -1281,11 +1289,66 @@ export class RepoView {
     }, refresh ? 0 : DETAILS_DELAY_MS);
   }
 
-  /** Runs a jj command with a toast, then reloads to show its effect. */
-  private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean } = {}) {
+  /**
+   * Runs a jj command with a toast, then reloads to show its effect.
+   * `keepOutput` leaves the toast up when the command printed something.
+   */
+  private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean; keepOutput?: boolean } = {}) {
     const undo = options.undo ? () => this.act("Undo", () => jj.undo(this.path)) : undefined;
-    await runWithToast(label, run, undo);
+    await runWithToast(label, run, undo, options.keepOutput);
     await this.load({ keepPosition: true });
+  }
+
+  /** `:`: runs any jj command line, aliases included, as jjui's exec does. */
+  private async execCommand(row: LogRow | null) {
+    let history: string[] = [];
+    try {
+      history = JSON.parse(storage("execHistory") ?? "[]");
+    } catch {
+      // History is a convenience only.
+    }
+    const target = row ? ` $change_id and $commit_id are ${row.changeId.slice(0, 8)}.` : "";
+    const line = await prompt("Run jj", `Your aliases work too.${target} ↑ ↓ for history.`, "", "log -r 'trunk()..@'", history);
+    if (!line) return;
+    const kept = [...history.filter((h) => h !== line), line].slice(-EXEC_HISTORY_SIZE);
+    storage("execHistory", JSON.stringify(kept));
+    const shown = line.replace(/^jj\s+/, "");
+    this.act(`jj ${shown}`, () => jj.exec(this.path, line, row?.changeId ?? null, row?.commitId ?? null), { keepOutput: true });
+  }
+
+  /**
+   * Adds a workspace, its working copy a new change on `row` (or beside this
+   * workspace's). A bare name goes beside the repo's folder; anything with a
+   * `/` is a folder, relative to the repo's.
+   */
+  private async addWorkspace(row: LogRow | null) {
+    const root = this.log?.workspaceRoot ?? this.path;
+    const beside = `${root.split("/").slice(0, -1).join("/")}/${this.name}-<name>`;
+    const on = row ? ` on ${row.changeId.slice(0, 8)}` : "";
+    const input = await prompt("Add Workspace", `A name, which puts it at ${beside}, or a folder path${on}`, "", "name or path");
+    if (!input) return;
+    const isPath = input.includes("/");
+    const name = isPath ? input.replace(/\/+$/, "").split("/").pop()! : input;
+    this.act(`Add workspace ${name}`, () => jj.workspaceAdd(this.path, name, isPath ? input : null, row?.commitId ?? null));
+  }
+
+  private async forgetWorkspace(name: string) {
+    const ok = await confirm(
+      `Stop tracking workspace “${name}”? Its folder and files are left as they are.`,
+      "Forget Workspace",
+      "Forget",
+    );
+    if (ok) this.act(`Forget workspace ${name}`, () => jj.workspaceForget(this.path, name), { undo: true });
+  }
+
+  private async deleteWorkspace(name: string, path: string | null) {
+    const where = path ? `, and move ${path} to the Trash` : "";
+    const ok = await confirm(
+      `Forget workspace “${name}”${where}? Changes in its working copy that jj hasn't snapshotted are lost.`,
+      "Delete Workspace",
+      "Delete",
+    );
+    if (ok) this.act(`Delete workspace ${name}`, () => jj.workspaceDelete(this.path, name));
   }
 
   /** Selects the row for a commit, if it's in the current view. */
@@ -1488,6 +1551,7 @@ export class RepoView {
       "separator",
       { text: "New Bookmark Here…", action: () => this.createBookmark(row) },
       { text: "New Tag Here…", action: () => this.createTag(row) },
+      { text: "New Workspace Here…", action: () => this.addWorkspace(row) },
     ];
     if (others.length > 0) {
       entries.push({
@@ -1568,6 +1632,18 @@ export class RepoView {
       entries.push(...this.tagEntries(item.name), "separator");
     } else if (item.kind === "remote" && item.remote) {
       entries.push(this.trackEntry(item.name, item.remote, !!item.tracked), "separator");
+    } else if (item.kind === "workspace") {
+      // This tab's own workspace can't be forgotten or deleted from here.
+      const current = !!item.tracked;
+      entries.push(
+        { text: "Open in New Tab", enabled: !current && !!item.path, action: () => this.onOpen(item.path!) },
+        { text: `Forget “${item.name}”…`, enabled: !current, action: () => this.forgetWorkspace(item.name) },
+        { text: `Delete “${item.name}”…`, enabled: !current, action: () => this.deleteWorkspace(item.name, item.path ?? null) },
+        "separator",
+        { text: "Add Workspace…", action: () => this.addWorkspace(null) },
+        "separator",
+      );
+      if (item.path) entries.push({ text: "Copy Path", action: () => copy(item.path!) });
     }
     if (item.commitId) entries.push({ text: "Show in Graph", action: () => this.selectCommit(item.commitId, item.name) });
     entries.push({ text: "Copy Name", action: () => copy(item.remote ? `${item.name}@${item.remote}` : item.name) });

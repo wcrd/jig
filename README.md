@@ -22,6 +22,8 @@ While I built this for the 2 reasons above, `jig` also supports most of the othe
 - Diffs, file tree and commit comparison (⌘-click two commits)
 - New, describe, squash, split, rebase, abandon, revert and cherry-pick, with undo/redo
 - Fetch, push, and bookmark and tag management
+- Add, forget and delete workspaces
+- Run any `jj` command, your aliases included, with `:`
 - Oplog viewer
 - `jjui` key bindings (press `?` for shortcuts)
 

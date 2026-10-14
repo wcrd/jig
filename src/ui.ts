@@ -46,8 +46,17 @@ export async function confirm(message: string, title: string, okLabel: string): 
   return ask(message, { title, kind: "warning", okLabel, cancelLabel: "Cancel" });
 }
 
-/** Asks for a line of text in a small modal; resolves to null if cancelled. */
-export function prompt(title: string, label: string, initial = "", placeholder = ""): Promise<string | null> {
+/**
+ * Asks for a line of text in a small modal; resolves to null if cancelled.
+ * With `history` (oldest first), ↑ / ↓ step through earlier entries.
+ */
+export function prompt(
+  title: string,
+  label: string,
+  initial = "",
+  placeholder = "",
+  history: string[] = [],
+): Promise<string | null> {
   const dialog = document.createElement("dialog");
   dialog.className = "prompt";
   dialog.innerHTML = `<form method="dialog">
@@ -58,11 +67,20 @@ export function prompt(title: string, label: string, initial = "", placeholder =
   document.body.appendChild(dialog);
   const input = dialog.querySelector("input")!;
   input.value = initial;
+  // Where ↑ / ↓ are in `history`; its length is the line being typed.
+  let place = history.length;
+  let typed = initial;
   // Enter would otherwise submit with the form's first button, Cancel.
   input.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       dialog.close("ok");
+    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && history.length > 0) {
+      event.preventDefault();
+      if (place === history.length) typed = input.value;
+      place = Math.max(0, Math.min(history.length, place + (event.key === "ArrowUp" ? -1 : 1)));
+      input.value = place === history.length ? typed : history[place];
+      input.setSelectionRange(input.value.length, input.value.length);
     }
   });
   return new Promise((resolve) => {
@@ -85,12 +103,14 @@ const toasts = (() => {
 
 /**
  * Runs a jj command, showing a toast while it runs and with its result
- * afterwards. Failures stay until dismissed; successes fade out.
+ * afterwards. Failures stay until dismissed; successes fade out, unless
+ * `keepOutput` and there's output to read.
  */
 export async function runWithToast(
   label: string,
   run: () => Promise<CommandOutput>,
   undo?: () => void,
+  keepOutput = false,
 ): Promise<boolean> {
   const toast = document.createElement("div");
   toast.className = "toast running";
@@ -104,7 +124,7 @@ export async function runWithToast(
     output = { success: false, stdout: "", stderr: String(err), command: "" };
   }
   const text = [output.stderr, output.stdout].map((s) => s.trim()).filter(Boolean).join("\n");
-  toast.className = `toast ${output.success ? "success" : "failure"}`;
+  toast.className = `toast ${output.success ? "success" : "failure"}${keepOutput ? " wide" : ""}`;
   toast.innerHTML =
     `<div class="toast-title">${output.success ? "✓" : "✕"} ${escapeHtml(label)}` +
     (output.success && undo ? `<button class="toast-undo">Undo</button>` : "") +
@@ -118,7 +138,7 @@ export async function runWithToast(
     undo?.();
   });
   // Leave time to undo history changes.
-  if (output.success) setTimeout(dismiss, undo ? 10000 : 5000);
+  if (output.success && !(keepOutput && text)) setTimeout(dismiss, undo ? 10000 : 5000);
   return output.success;
 }
 
@@ -243,6 +263,7 @@ const HELP: [string, [string, string][]][] = [
       ["u  ⇧U", "Undo / redo"],
       ["o", "Operation log"],
       ["g", "Fetch / push"],
+      [":", "Run a jj command (aliases too)"],
       ["⌘F", "Find in graph, or in the diff"],
       ["⇧L  ⌘L", "Revset"],
       ["⌘R", "Reload"],

@@ -64,6 +64,7 @@ function openTab(path: string, { focus = true } = {}): RepoView {
   }
   const view = new RepoView(template, path);
   view.onChange = renderTabs;
+  view.onOpen = (path) => openTab(path);
   views.push(view);
   viewsEl.appendChild(view.root);
   view.load();
