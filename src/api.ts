@@ -110,6 +110,8 @@ export const jj = {
   setParents: (path: string, revision: string, parents: string[]) =>
     invoke<CommandOutput>("jj_set_parents", { path, revision, parents }),
   abandon: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_abandon", { path, revisions }),
+  /** Describes the working copy and starts a new change on top. */
+  commit: (path: string, message: string) => invoke<CommandOutput>("jj_commit", { path, message }),
   describe: (path: string, revision: string, message: string) =>
     invoke<CommandOutput>("jj_describe", { path, revision, message }),
   duplicate: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_duplicate", { path, revisions }),

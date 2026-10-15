@@ -209,6 +209,7 @@ const HELP: [string, [string, string][]][] = [
       ["n", "New change"],
       ["e", "Edit"],
       ["↩  ⇧D", "Describe"],
+      ["c", "Commit the working copy"],
       ["d", "Full-size diff (↑ ↓ move between files)"],
       ["← →", "Shrink / grow details"],
       ["r", "Rebase"],

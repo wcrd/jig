@@ -522,6 +522,11 @@ async fn jj_abandon(path: String, revisions: Vec<String>) -> Result<jj_cli::Comm
 }
 
 #[tauri::command]
+async fn jj_commit(path: String, message: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || Ok(jj_cli::commit_args(&message))).await
+}
+
+#[tauri::command]
 async fn jj_describe(
     path: String,
     revision: String,
@@ -824,6 +829,7 @@ pub fn run() {
             jj_edit,
             jj_abandon,
             jj_describe,
+            jj_commit,
             jj_duplicate,
             jj_absorb,
             jj_squash,

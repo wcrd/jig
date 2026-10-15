@@ -305,6 +305,12 @@ pub fn describe_args(revision: &str, message: &str) -> Result<Vec<String>> {
     ])
 }
 
+/// `jj commit`: describes the working copy and starts a new change on top.
+/// It always acts on the workspace's `@`, so there's no revision.
+pub fn commit_args(message: &str) -> Vec<String> {
+    vec!["commit".to_owned(), format!("--message={message}")]
+}
+
 pub fn absorb_args(revision: &str) -> Result<Vec<String>> {
     validate_revision(revision)?;
     Ok(strings(&["absorb", "--from", revision]))
@@ -721,6 +727,7 @@ mod tests {
         );
         assert_eq!(describe_args("a1", "").unwrap()[1], "--message=");
         assert!(describe_args("nope", "m").is_err());
+        assert_eq!(commit_args("-x\nbody"), v(&["commit", "--message=-x\nbody"]));
     }
 
     #[test]

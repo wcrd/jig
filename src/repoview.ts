@@ -630,6 +630,9 @@ export class RepoView {
       case "D":
         this.describe(row);
         return true;
+      case "c":
+        this.commit(row);
+        return true;
       case "d":
         // The first d brings up the Changes tab; the next fills the window with it.
         if (!this.fullDiff && this.details.currentTab !== "changes") this.details.setTab("changes");
@@ -1103,8 +1106,13 @@ export class RepoView {
     const parents = [row];
     if (this.compareIndex >= 0) parents.push(this.log!.rows[this.compareIndex]);
     const label = parents.length > 1 ? "New merge" : `New change on ${row.changeId.slice(0, 8)}`;
-    if (!(await this.act(label, () => jj.newChange(this.path, parents.map((p) => p.commitId)), { undo: true }))) return;
-    // Move to the new working copy, which may have landed out of view.
+    if (await this.act(label, () => jj.newChange(this.path, parents.map((p) => p.commitId)), { undo: true })) {
+      this.selectWorkingCopy();
+    }
+  }
+
+  /** Moves to the working copy after a command made a new one, which may have landed out of view. */
+  private selectWorkingCopy() {
     const wc = this.log?.rows.findIndex((r) => r.isWorkingCopy) ?? -1;
     if (wc >= 0) {
       this.compareIndex = -1;
@@ -1127,6 +1135,23 @@ export class RepoView {
     const edited = await this.details.editDescription(row, message, stayOnCommit);
     if (edited === null || edited.trim() === message.trim()) return;
     this.act(`Describe ${row.changeId.slice(0, 8)}`, () => jj.describe(this.path, row.commitId, edited), { undo: true });
+  }
+
+  /** c: describe the working copy and start a new change on top, as `jj commit` does. Only on `@`. */
+  private async commit(row: LogRow) {
+    if (!row.isWorkingCopy) return;
+    let message = row.summary;
+    try {
+      message = (this.diffCache.get(row.commitId) ?? (await fetchDiff(this.path, row.commitId))).description;
+    } catch {
+      // Edit the summary rather than nothing.
+    }
+    // Saving commits even when the message is unchanged.
+    const edited = await this.details.editDescription(row, message);
+    if (edited === null) return;
+    if (await this.act(`Commit ${row.changeId.slice(0, 8)}`, () => jj.commit(this.path, edited), { undo: true })) {
+      this.selectWorkingCopy();
+    }
   }
 
   /** Dragging a row onto another starts a rebase there (⇧ for descendants). */
@@ -1587,6 +1612,7 @@ export class RepoView {
       { text: "New Change Here", shortcut: "N", action: () => this.newChange(row) },
       { text: "Edit", shortcut: "E", action: () => this.editCommit(row), enabled: !row.immutable },
       { text: "Describe…", shortcut: "Shift+D", action: () => this.describe(row), enabled: !row.immutable },
+      { text: "Commit…", shortcut: "C", action: () => this.commit(row), enabled: row.isWorkingCopy },
       "separator",
       { text: "Rebase…", shortcut: "R", action: () => this.startRebase(index, "revision") },
       { text: "Rebase with Descendants…", action: () => this.startRebase(index, "source") },
