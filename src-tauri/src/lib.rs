@@ -652,16 +652,32 @@ async fn jj_op_revert(path: String, op_id: String) -> Result<jj_cli::CommandOutp
 
 /// Splits `revision` into two commits; the first gets the changes selected in
 /// `plan`. jj runs this very binary as its diff editor (see `split_tool`).
+/// `jj split --message` only describes the first commit, so a
+/// `second_message` is a describe of the remainder afterwards: two operations.
 #[tauri::command]
 async fn jj_split(
     path: String,
     revision: String,
     plan: split_tool::SplitPlan,
     message: Option<String>,
+    second_message: Option<String>,
 ) -> Result<jj_cli::CommandOutput, String> {
     blocking(move || {
         let root = repo::find_workspace_root(&PathBuf::from(&path))
             .ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))?;
+        // The first commit keeps the change id, which finds the remainder afterwards.
+        let change_id = match &second_message {
+            Some(_) => {
+                let args = jj_cli::change_id_args(&revision)?;
+                let args: Vec<&str> = args.iter().map(String::as_str).collect();
+                let out = jj_cli::run(&root, &args)?;
+                if !out.success {
+                    return Ok(out);
+                }
+                Some(out.stdout.trim().to_owned())
+            }
+            None => None,
+        };
         let program = std::env::current_exe()?;
         static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let plan_path = std::env::temp_dir().join(format!(
@@ -675,7 +691,16 @@ async fn jj_split(
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let result = jj_cli::run_with_config(&root, &configs, &args);
         let _ = std::fs::remove_file(&plan_path);
-        result
+        let mut combined = jj_cli::CommandOutput::empty();
+        if !combined.append(result?) {
+            return Ok(combined);
+        }
+        if let (Some(change_id), Some(second)) = (change_id, second_message) {
+            let args = jj_cli::describe_split_remainder_args(&change_id, &second)?;
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            combined.append(jj_cli::run(&root, &args)?);
+        }
+        Ok(combined)
     })
     .await
 }

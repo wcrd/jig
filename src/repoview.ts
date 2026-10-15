@@ -36,7 +36,8 @@ type Pending =
   | { kind: "abandon"; marked: Set<number> }
   /** ⇧M: choose a commit's parents, first parent first; its descendants follow. */
   | { kind: "parents"; source: number; marked: number[] }
-  | { kind: "split"; source: number; message: string | null }
+  /** A null message leaves that commit with the original description. */
+  | { kind: "split"; source: number; message: string | null; secondMessage: string | null }
   /** Cherry-pick (jj duplicate) or revert, placed relative to a target. */
   | { kind: "duplicate"; source: number; placement: Placement; target: number }
   | { kind: "revert"; source: number; placement: Placement; target: number };
@@ -262,7 +263,7 @@ export class RepoView {
       if (!button || !p) return;
       if (button.dataset.action === "run") return this.runPending();
       if (button.dataset.action === "cancel") return this.cancelPending();
-      if (button.dataset.action === "message" && p.kind === "split") return this.editSplitMessage();
+      if (button.dataset.action === "message" && p.kind === "split") return this.editSplitMessage(button.dataset.commit === "second");
       if (p.kind === "rebase" && button.dataset.mode) p.mode = button.dataset.mode as RebaseMode;
       if ("placement" in p && button.dataset.placement) p.placement = button.dataset.placement as Placement;
       this.updatePending();
@@ -731,7 +732,7 @@ export class RepoView {
   private startSplit(index: number) {
     this.select(index);
     this.scheduleDetails();
-    this.pending = { kind: "split", source: index, message: null };
+    this.pending = { kind: "split", source: index, message: null, secondMessage: null };
     this.compareIndex = -1;
     this.details.startSplit();
     this.updatePending();
@@ -959,7 +960,8 @@ export class RepoView {
       body =
         `<span class="modebar-title">Split</span>${id(p.source)} ${summary(p.source)}` +
         `<span class="muted">${selected} of ${total} ${total === 1 ? "change" : "changes"} ticked for the first commit</span>` +
-        `<button class="modebar-button" data-action="message">${p.message === null ? "First commit message…" : "Edit message…"}</button>`;
+        `<button class="modebar-button" data-action="message" data-commit="first">${p.message === null ? "First commit message…" : "Edit first message…"}</button>` +
+        `<button class="modebar-button" data-action="message" data-commit="second">${p.secondMessage === null ? "Second commit message…" : "Edit second message…"}</button>`;
       action = "Split";
       hint = "Tick files, hunks or lines · Enter · Esc";
     } else if (p.kind === "parents") {
@@ -1019,8 +1021,9 @@ export class RepoView {
       this.details.endSplit();
       await this.act(
         `Split ${short(p.source)}`,
-        () => jj.split(this.path, rows[p.source].commitId, plan, p.message),
-        { undo: true },
+        () => jj.split(this.path, rows[p.source].commitId, plan, p.message, p.secondMessage),
+        // A second message is a describe after the split: two operations.
+        { undo: p.secondMessage === null ? 1 : 2 },
       );
     } else {
       const marked = [...p.marked].sort((a, b) => a - b);
@@ -1074,23 +1077,25 @@ export class RepoView {
     this.resolver.update(next, conflicts, undefined, filePath);
   }
 
-  private async editSplitMessage() {
+  /** Edits the message for the first commit (the ticked changes) or the second (the rest). */
+  private async editSplitMessage(second: boolean) {
     const p = this.pending;
     if (p?.kind !== "split") return;
     const row = this.log!.rows[p.source];
-    let message = p.message ?? row.summary;
-    if (p.message === null) {
-      try {
-        message = (this.diffCache.get(row.commitId) ?? (await fetchDiff(this.path, row.commitId))).description;
-      } catch {
-        // Start from the summary.
-      }
+    // Both start from the commit's description, which the second keeps unless edited.
+    let original = row.summary;
+    try {
+      original = (this.diffCache.get(row.commitId) ?? (await fetchDiff(this.path, row.commitId))).description;
+    } catch {
+      // Start from the summary.
     }
-    const edited = await editText("Message for the first commit", message, "⌥↩ or ⌘↩ to save");
-    if (edited !== null && this.pending === p) {
-      p.message = edited;
-      this.updateModebar();
-    }
+    const current = second ? p.secondMessage : p.message;
+    const title = second ? "Message for the second commit" : "Message for the first commit";
+    const edited = await editText(title, current ?? original, "⌥↩ or ⌘↩ to save");
+    if (edited === null || this.pending !== p) return;
+    if (second) p.secondMessage = edited.trim() === original.trim() ? null : edited;
+    else p.message = edited;
+    this.updateModebar();
   }
 
   private async newChange(row: LogRow) {
@@ -1309,11 +1314,13 @@ export class RepoView {
 
   /**
    * Runs a jj command with a toast, then reloads to show its effect;
-   * resolves to whether it succeeded. `keepOutput` leaves the toast up when
-   * the command printed something.
+   * resolves to whether it succeeded. `undo` offers an Undo button, a number
+   * for commands that make more than one operation. `keepOutput` leaves the
+   * toast up when the command printed something.
    */
-  private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean; keepOutput?: boolean } = {}) {
-    const undo = options.undo ? () => this.act("Undo", () => jj.undo(this.path)) : undefined;
+  private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean | number; keepOutput?: boolean } = {}) {
+    const steps = options.undo === true ? 1 : options.undo || 0;
+    const undo = steps > 0 ? () => this.act("Undo", () => this.undoSteps(steps)) : undefined;
     this.acting++;
     let ok: boolean;
     try {
@@ -1323,6 +1330,21 @@ export class RepoView {
     }
     await this.load({ keepPosition: true });
     return ok;
+  }
+
+  /** `jj undo` `steps` times, as one result. */
+  private async undoSteps(steps: number): Promise<CommandOutput> {
+    let output = await jj.undo(this.path);
+    for (let i = 1; i < steps && output.success; i++) {
+      const next = await jj.undo(this.path);
+      output = {
+        success: next.success,
+        stdout: output.stdout + next.stdout,
+        stderr: output.stderr + next.stderr,
+        command: `${output.command} && ${next.command}`,
+      };
+    }
+    return output;
   }
 
   /** `:`: runs any jj command line, aliases included, as jjui's exec does. */

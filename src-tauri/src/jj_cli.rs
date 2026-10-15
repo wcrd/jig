@@ -326,6 +326,33 @@ pub fn op_args(subcommand: &str, op_id: &str) -> Result<Vec<String>> {
     Ok(strings(&["operation", subcommand, op_id]))
 }
 
+/// Change ids are jj's reverse hex, the letters `k` to `z`.
+pub fn validate_change_id(id: &str) -> Result<()> {
+    let ok = (1..=64).contains(&id.len()) && id.bytes().all(|b| (b'k'..=b'z').contains(&b));
+    if !ok {
+        bail!("change id must be reverse hex: {id:?}");
+    }
+    Ok(())
+}
+
+/// Prints the change id of `revision`, without snapshotting.
+pub fn change_id_args(revision: &str) -> Result<Vec<String>> {
+    validate_revision(revision)?;
+    Ok(strings(&["log", "--no-graph", "--ignore-working-copy", "-r", revision, "-T", "change_id"]))
+}
+
+/// Describes the commit `jj split` put the remaining changes in. The first
+/// commit keeps the change id, and the remainder is its only child: the
+/// split commit's children were rebased onto the remainder.
+pub fn describe_split_remainder_args(change_id: &str, message: &str) -> Result<Vec<String>> {
+    validate_change_id(change_id)?;
+    Ok(vec![
+        "describe".to_owned(),
+        format!("--message={message}"),
+        format!("exactly(children(change_id({change_id})), 1)"),
+    ])
+}
+
 /// The `--config` values that make `program` act as the `jig-split` diff
 /// editor, plus the args for `jj split`.
 pub fn split_args(
@@ -719,6 +746,13 @@ mod tests {
             v(&["split", "--revision", "a1", "--tool", "jig-split", "--message=-m"])
         );
         assert!(split_args("main", None, Path::new("/j"), Path::new("/p")).is_err());
+        assert_eq!(
+            describe_split_remainder_args("uyopuukr", "-second").unwrap(),
+            v(&["describe", "--message=-second", "exactly(children(change_id(uyopuukr)), 1)"])
+        );
+        assert!(describe_split_remainder_args("abc", "m").is_err());
+        assert!(describe_split_remainder_args("k)|all(", "m").is_err());
+        assert!(change_id_args("@").is_err());
     }
 
     #[test]

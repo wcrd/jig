@@ -116,8 +116,9 @@ export const jj = {
   absorb: (path: string, revision: string) => invoke<CommandOutput>("jj_absorb", { path, revision }),
   squash: (path: string, revision: string, into: string, paths: string[] = []) =>
     invoke<CommandOutput>("jj_squash", { path, revision, into, paths }),
-  split: (path: string, revision: string, plan: SplitPlan, message: string | null) =>
-    invoke<CommandOutput>("jj_split", { path, revision, plan, message }),
+  /** `secondMessage` describes the remaining changes' commit, as a second operation. */
+  split: (path: string, revision: string, plan: SplitPlan, message: string | null, secondMessage: string | null) =>
+    invoke<CommandOutput>("jj_split", { path, revision, plan, message, secondMessage }),
   opRestore: (path: string, opId: string) => invoke<CommandOutput>("jj_op_restore", { path, opId }),
   opRevert: (path: string, opId: string) => invoke<CommandOutput>("jj_op_revert", { path, opId }),
   resolve: (path: string, revision: string, filePath: string, content: string) =>
