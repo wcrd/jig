@@ -1,6 +1,8 @@
 //! Mutations go through the user's installed `jj` binary rather than jj-lib,
 //! so jj handles snapshotting, the op log, config and git credentials.
 
+use std::collections::HashSet;
+use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -24,17 +26,9 @@ fn is_executable_file(path: &Path) -> bool {
         .is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
 }
 
-/// Looks for `name` on the process `PATH`.
-fn find_on_path(name: &str) -> Option<PathBuf> {
-    let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .map(|dir| dir.join(name))
-        .find(|p| is_executable_file(p))
-}
-
 /// Common install locations, since GUI apps launched from Finder don't get
 /// the shell's `PATH`.
-fn find_in_known_dirs(name: &str) -> Option<PathBuf> {
+fn known_dirs() -> Vec<PathBuf> {
     let mut dirs = vec![PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/usr/local/bin")];
     if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
         dirs.push(home.join(".cargo/bin"));
@@ -42,32 +36,49 @@ fn find_in_known_dirs(name: &str) -> Option<PathBuf> {
         dirs.push(home.join(".nix-profile/bin"));
     }
     dirs.push(PathBuf::from("/usr/bin"));
-    dirs.into_iter().map(|dir| dir.join(name)).find(|p| is_executable_file(p))
+    dirs
 }
 
-/// Last resort: ask the user's login shell, which has their real `PATH`.
-fn find_via_login_shell(name: &str) -> Option<PathBuf> {
+/// The user's login shell's `PATH`, which is their real one.
+fn login_shell_path() -> Option<OsString> {
     let shell = std::env::var("SHELL")
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "/bin/zsh".to_owned());
-    let out = Command::new(shell)
-        .args(["-lc", &format!("command -v {name}")])
-        .output()
-        .ok()?;
-    let line = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .last()?
-        .trim()
-        .to_owned();
-    let path = PathBuf::from(line);
-    (path.is_absolute() && is_executable_file(&path)).then_some(path)
+    // `printenv` rather than `$PATH`, which fish keeps as a list. The
+    // last line, in case the profile prints something.
+    let out = Command::new(shell).args(["-lc", "echo; printenv PATH"]).output().ok()?;
+    let line = String::from_utf8_lossy(&out.stdout).lines().last()?.trim().to_owned();
+    (!line.is_empty()).then(|| line.into())
+}
+
+/// Where to look for programs: the process `PATH`, then common install
+/// locations, then the login shell's `PATH`. jj and git are given it as
+/// their `PATH` too, so an alias that runs `jj` or another tool through
+/// `jj util exec` finds it when the app was launched from Finder.
+fn search_path() -> &'static OsStr {
+    static SEARCH_PATH: OnceLock<OsString> = OnceLock::new();
+    SEARCH_PATH.get_or_init(|| {
+        let process = std::env::var_os("PATH");
+        let login = login_shell_path();
+        let mut seen = HashSet::new();
+        let dirs = process
+            .iter()
+            .flat_map(std::env::split_paths)
+            .chain(known_dirs())
+            .chain(login.iter().flat_map(std::env::split_paths))
+            // A folder with a `:` in it can't be on a `PATH`.
+            .filter(|dir| {
+                !dir.as_os_str().is_empty() && !dir.to_string_lossy().contains(':') && seen.insert(dir.clone())
+            });
+        std::env::join_paths(dirs).unwrap_or_default()
+    })
 }
 
 fn find_binary(name: &str) -> Option<PathBuf> {
-    find_on_path(name)
-        .or_else(|| find_in_known_dirs(name))
-        .or_else(|| find_via_login_shell(name))
+    std::env::split_paths(search_path())
+        .map(|dir| dir.join(name))
+        .find(|p| is_executable_file(p))
 }
 
 /// The `jj` binary, looked up once.
@@ -108,6 +119,7 @@ pub fn run_with_config(root: &Path, configs: &[String], args: &[&str]) -> Result
         // hanging the app waiting on one.
         .env("JJ_EDITOR", "true")
         .env("EDITOR", "true")
+        .env("PATH", search_path())
         .output()
         .with_context(|| format!("failed to run {}", jj.display()))?;
     Ok(CommandOutput {
@@ -129,6 +141,7 @@ pub fn run_git(root: &Path, git_dir: &Path, args: &[&str]) -> Result<CommandOutp
         .stdin(std::process::Stdio::null())
         // Fail rather than wait for a username or password nobody can type.
         .env("GIT_TERMINAL_PROMPT", "0")
+        .env("PATH", search_path())
         .output()
         .with_context(|| format!("failed to run {}", git.display()))?;
     Ok(CommandOutput {
@@ -625,6 +638,9 @@ mod tests {
             // It exists now, so creating it again fails.
             let bad = run(&dir, &["bookmark", "create", "foo", "-r", "@"]).unwrap();
             assert!(!bad.success);
+            // An alias that shells out can run jj, whatever PATH the app got.
+            let nested = run(&dir, &["util", "exec", "--", "sh", "-c", "jj --version"]).unwrap();
+            assert!(nested.success, "{}", nested.stderr);
         }
         let _ = std::fs::remove_dir_all(&dir);
     }
