@@ -61,7 +61,7 @@ export function prompt(
   dialog.className = "prompt";
   dialog.innerHTML = `<form method="dialog">
     <div class="prompt-title">${escapeHtml(title)}</div>
-    <label>${escapeHtml(label)}<input name="value" spellcheck="false" autocomplete="off" placeholder="${escapeHtml(placeholder)}" /></label>
+    <label>${escapeHtml(label)}<input name="value" spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" placeholder="${escapeHtml(placeholder)}" /></label>
     <div class="prompt-buttons"><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">OK</button></div>
   </form>`;
   document.body.appendChild(dialog);
@@ -167,7 +167,7 @@ export function editText(title: string, initial: string, hint = ""): Promise<str
   dialog.className = "prompt editor";
   dialog.innerHTML = `<form method="dialog">
     <div class="prompt-title">${escapeHtml(title)}</div>
-    <textarea name="value" spellcheck="true" rows="10"></textarea>
+    <textarea name="value" spellcheck="true" autocapitalize="off" autocorrect="off" rows="10"></textarea>
     <div class="prompt-buttons"><span class="muted prompt-hint">${escapeHtml(hint)}</span><button value="cancel" formnovalidate>Cancel</button><button value="ok" class="primary">Save</button></div>
   </form>`;
   document.body.appendChild(dialog);

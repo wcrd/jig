@@ -20,7 +20,7 @@ export class SearchBar {
     this.el.className = "search-bar";
     this.el.hidden = true;
     this.el.innerHTML = `<svg viewBox="0 0 16 16" width="12" height="12"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10.5 10.5L14 14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
-      <input spellcheck="false" autocomplete="off" placeholder="Find" />
+      <input spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off" placeholder="Find" />
       <span class="search-count"></span>
       <button data-step="-1" title="Previous (⇧↩)">↑</button>
       <button data-step="1" title="Next (↩)">↓</button>

@@ -1041,7 +1041,7 @@ export class DetailsPanel {
     this.cancelEdit();
     const el = document.createElement("div");
     el.className = "ci-editor";
-    el.innerHTML = `<textarea spellcheck="true" rows="8"></textarea>
+    el.innerHTML = `<textarea spellcheck="true" autocapitalize="off" autocorrect="off" rows="8"></textarea>
       <div class="prompt-buttons"><span class="muted prompt-hint">⌥↩ or ⌘↩ to save · Esc to cancel</span><button data-edit="cancel">Cancel</button><button data-edit="save" class="primary">Save</button></div>`;
     const textarea = el.querySelector("textarea")!;
     textarea.value = initial;

@@ -126,7 +126,7 @@ export class MergeEditor {
       <div class="mcell left"><button class="mtake" data-take="left" title="Use this side">»</button><pre>${escapeHtml(display(leftText)) || '<span class="muted">(nothing)</span>'}</pre></div>
       <div class="mcell result">
         <div class="mresult-tools"><button class="mmenu" data-menu="${index}" title="More choices">⋯</button></div>
-        <textarea spellcheck="false" rows="${rows}" placeholder="Take a side with » or «, or type the result">${escapeHtml(display(choice ?? ""))}</textarea>
+        <textarea spellcheck="false" autocapitalize="off" autocorrect="off" rows="${rows}" placeholder="Take a side with » or «, or type the result">${escapeHtml(display(choice ?? ""))}</textarea>
       </div>
       <div class="mcell right"><button class="mtake" data-take="right" title="Use this side">«</button><pre>${escapeHtml(display(rightText)) || '<span class="muted">(nothing)</span>'}</pre></div>
     </div>`;
