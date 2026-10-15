@@ -19,7 +19,7 @@ export class OpLogPanel {
   constructor(
     private el: HTMLElement,
     private path: string,
-    private act: (label: string, run: () => Promise<CommandOutput>) => Promise<void>,
+    private act: (label: string, run: () => Promise<CommandOutput>) => Promise<unknown>,
     private onToggle: (visible: boolean) => void,
     /** Jump to a commit in the graph. */
     private showCommit: (commitId: string) => void,

@@ -1093,12 +1093,18 @@ export class RepoView {
     }
   }
 
-  private newChange(row: LogRow) {
+  private async newChange(row: LogRow) {
     // With a second commit ⌘-clicked, make a merge of the two.
     const parents = [row];
     if (this.compareIndex >= 0) parents.push(this.log!.rows[this.compareIndex]);
     const label = parents.length > 1 ? "New merge" : `New change on ${row.changeId.slice(0, 8)}`;
-    this.act(label, () => jj.newChange(this.path, parents.map((p) => p.commitId)), { undo: true });
+    if (!(await this.act(label, () => jj.newChange(this.path, parents.map((p) => p.commitId)), { undo: true }))) return;
+    // Move to the new working copy, which may have landed out of view.
+    const wc = this.log?.rows.findIndex((r) => r.isWorkingCopy) ?? -1;
+    if (wc >= 0) {
+      this.compareIndex = -1;
+      this.select(wc);
+    }
   }
 
   private editCommit(row: LogRow) {
@@ -1302,18 +1308,21 @@ export class RepoView {
   }
 
   /**
-   * Runs a jj command with a toast, then reloads to show its effect.
-   * `keepOutput` leaves the toast up when the command printed something.
+   * Runs a jj command with a toast, then reloads to show its effect;
+   * resolves to whether it succeeded. `keepOutput` leaves the toast up when
+   * the command printed something.
    */
   private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean; keepOutput?: boolean } = {}) {
     const undo = options.undo ? () => this.act("Undo", () => jj.undo(this.path)) : undefined;
     this.acting++;
+    let ok: boolean;
     try {
-      await runWithToast(label, run, undo, options.keepOutput);
+      ok = await runWithToast(label, run, undo, options.keepOutput);
     } finally {
       this.acting--;
     }
     await this.load({ keepPosition: true });
+    return ok;
   }
 
   /** `:`: runs any jj command line, aliases included, as jjui's exec does. */
