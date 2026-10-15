@@ -100,6 +100,7 @@ export const jj = {
     invoke<CommandOutput>("jj_delete_remote_tag", { path, name, remote }),
   gitFetch: (path: string, remote: string | null = null) => invoke<CommandOutput>("jj_git_fetch", { path, remote }),
   gitImport: (path: string) => invoke<CommandOutput>("jj_git_import", { path }),
+  snapshot: (path: string) => invoke<CommandOutput>("jj_snapshot", { path }),
   gitPush: (path: string, bookmark: string | null = null, remote: string | null = null) =>
     invoke<CommandOutput>("jj_git_push", { path, bookmark, remote }),
   rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>

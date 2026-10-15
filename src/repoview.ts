@@ -110,6 +110,9 @@ export class RepoView {
   private modebar!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
   private loading = false;
+  private polling = false;
+  /** Actions running through `act`; polling waits for them so it doesn't snapshot mid-command. */
+  private acting = 0;
   private frame = 0;
 
   // Diffs are cached by commit ID: a commit's content never changes.
@@ -394,14 +397,23 @@ export class RepoView {
     el.title = log.workspaceRoot;
   }
 
-  /** Reloads if jj has run an operation since the last load. */
+  /**
+   * Reloads if jj has run an operation since the last load. While the window
+   * has focus it snapshots the working copy first: editing files doesn't
+   * make an operation until something snapshots them.
+   */
   async pollForChanges() {
-    if (!isTauri || !this.log || this.loading) return;
+    if (!isTauri || !this.log || this.loading || this.polling || this.acting > 0) return;
+    this.polling = true;
     try {
+      if (document.hasFocus()) await jj.snapshot(this.path);
       const opId = await fetchHeadOpId(this.path);
-      if (this.log && opId !== this.log.opId) await this.load({ keepPosition: true });
+      // An action may have started meanwhile; it reloads when done.
+      if (this.log && opId !== this.log.opId && this.acting === 0) await this.load({ keepPosition: true });
     } catch {
       // Errors surface on the next explicit load.
+    } finally {
+      this.polling = false;
     }
   }
 
@@ -1295,7 +1307,12 @@ export class RepoView {
    */
   private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean; keepOutput?: boolean } = {}) {
     const undo = options.undo ? () => this.act("Undo", () => jj.undo(this.path)) : undefined;
-    await runWithToast(label, run, undo, options.keepOutput);
+    this.acting++;
+    try {
+      await runWithToast(label, run, undo, options.keepOutput);
+    } finally {
+      this.acting--;
+    }
     await this.load({ keepPosition: true });
   }
 

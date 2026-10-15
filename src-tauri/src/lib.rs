@@ -443,6 +443,13 @@ async fn jj_git_fetch(
     .await
 }
 
+/// Snapshots the working copy, so edits made outside jj become an operation
+/// that the head op id shows.
+#[tauri::command]
+async fn jj_snapshot(path: String) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, || Ok(jj_cli::strings(&["util", "snapshot"]))).await
+}
+
 /// Imports refs changed outside jj, such as by the git CLI.
 #[tauri::command]
 async fn jj_git_import(path: String) -> Result<jj_cli::CommandOutput, String> {
@@ -781,6 +788,7 @@ pub fn run() {
             jj_delete_remote_tag,
             jj_git_fetch,
             jj_git_import,
+            jj_snapshot,
             open_url,
             jj_git_push,
             jj_rebase,
