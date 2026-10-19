@@ -1105,6 +1105,7 @@ body.resizing-columns * {
 /* Repository tabs */
 
 .repo-tabs {
+  position: relative;
   flex: none;
   display: flex;
   align-items: stretch;
@@ -1146,6 +1147,36 @@ body.resizing-columns * {
   /* Merge into the toolbar below. */
   margin-bottom: -1px;
   border-bottom: 1px solid var(--toolbar-bg);
+}
+
+.tab.dragging {
+  background: var(--toolbar-bg);
+  color: var(--text);
+}
+
+/* Let go now, it goes to another window. */
+.tab.leaving {
+  opacity: 0.45;
+}
+
+body.tab-dragging,
+body.tab-dragging * {
+  cursor: grabbing !important;
+}
+
+/* Where a tab dragged from another window will land. */
+.repo-tabs.drop-target {
+  background: color-mix(in srgb, var(--toolbar-bg) 82%, var(--ui-blue) 12%);
+}
+
+.drop-marker {
+  position: absolute;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--ui-blue);
+  pointer-events: none;
 }
 
 .tab-name {

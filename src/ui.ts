@@ -270,6 +270,7 @@ const HELP: [string, [string, string][]][] = [
       ["⌘R", "Reload"],
       ["⌥↑ ⌥↓", "Previous / next file"],
       ["⌘T  ⌘W", "Open / close tab"],
+      ["⌘N  ⇧⌘W", "New / close window"],
       ["⌘1–9", "Switch tab"],
       ["?", "This help"],
       ["⌘,", "Settings"],

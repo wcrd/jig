@@ -1,7 +1,6 @@
 // Calls into the Rust backend, plus small shared helpers.
 
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 
 import type { SplitPlan } from "./details";
 import type { ConflictFile } from "./mergeview";
@@ -72,11 +71,6 @@ export function fetchHeadOpId(path: string): Promise<string> {
 
 export function fetchInitialRepo(): Promise<{ path: string; explicit: boolean } | null> {
   return invoke("initial_repo");
-}
-
-/** Folders macOS hands to the running app (`open -a Jig.app <dir>`, a Dock drop). */
-export function onOpenRepo(handler: (path: string) => void): Promise<unknown> {
-  return listen<string>("open-repo", (e) => handler(e.payload));
 }
 
 /** Repository changes, run through the user's `jj` so it behaves exactly as jj does. */

@@ -112,6 +112,16 @@ export function graphDate(): GraphDate {
   return graphDateChoice;
 }
 
+// Settings changed in another window.
+window.addEventListener("storage", (event) => {
+  if (event.key === "theme") applyTheme();
+  else if (event.key === "palette") applyPalette();
+  else if (event.key === "graphDate") {
+    graphDateChoice = event.newValue === "created" ? "created" : "changed";
+    window.dispatchEvent(new Event("graph-date-change"));
+  }
+});
+
 /** Saves the graph's date column choice; open repo views re-render on the event. */
 function setGraphDate(choice: GraphDate) {
   graphDateChoice = choice;

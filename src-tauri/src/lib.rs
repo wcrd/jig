@@ -5,6 +5,7 @@ pub mod layout;
 pub mod repo;
 pub mod resolve_tool;
 pub mod split_tool;
+pub mod windows;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -794,6 +795,9 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .manage(OpenRepos::default())
         .manage(OpenedRepo::default())
+        .manage(windows::WindowOrder::default())
+        .manage(windows::WindowInits::default())
+        .on_window_event(windows::on_window_event)
         .invoke_handler(tauri::generate_handler![
             load_log,
             commit_diff,
@@ -843,7 +847,10 @@ pub fn run() {
             jj_exec,
             jj_workspace_add,
             jj_workspace_forget,
-            jj_workspace_delete
+            jj_workspace_delete,
+            windows::open_window,
+            windows::take_window_init,
+            windows::window_at
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -853,9 +860,13 @@ pub fn run() {
                 use tauri::{Emitter, Manager};
                 for path in urls.iter().filter_map(opened_repo_path) {
                     // At launch nothing is listening yet, so `initial_repo`
-                    // picks it up; once running, the event opens the tab.
+                    // picks it up; once running, the event opens the tab in
+                    // the frontmost window.
                     *app.state::<OpenedRepo>().0.lock().unwrap() = Some(path.clone());
-                    let _ = app.emit("open-repo", path);
+                    let _ = match app.state::<windows::WindowOrder>().frontmost() {
+                        Some(label) => app.emit_to(label, "open-repo", path),
+                        None => app.emit("open-repo", path),
+                    };
                 }
             }
             #[cfg(not(target_os = "macos"))]

@@ -94,6 +94,8 @@ export class RepoView {
   private log: LogResponse | null = null;
   private graph: Graph | null = null;
   private selected = -1;
+  /** A change to select on the first load, for a tab moved from another window. */
+  private initialChange: string | null = null;
   /** The other commit in compare mode (⌘-click), or -1. */
   private compareIndex = -1;
   /** Compare from the upper commit to the lower instead of the reverse. */
@@ -334,7 +336,7 @@ export class RepoView {
     this.loading = true;
     const previousIndex = this.selected;
     const previousRows = this.log?.rows ?? [];
-    const previousChange = this.log && this.selected >= 0 ? this.log.rows[this.selected]?.changeId : null;
+    const previousChange = this.selectedChangeId() ?? this.initialChange;
     const previousScroll = this.scroller.scrollTop;
     this.statusEl.textContent = "Loading…";
     try {
@@ -368,6 +370,7 @@ export class RepoView {
       this.compareIndex = previousCompare ? next.rows.findIndex((r) => r.changeId === previousCompare) : -1;
       if (selected < 0 && !keepPosition) selected = next.rows.findIndex((r) => r.isWorkingCopy);
       this.selected = selected;
+      this.initialChange = null;
       this.spacer.style.height = `${next.rows.length * ROW_HEIGHT}px`;
       // Keep the selected commit where it was on screen, even if commits
       // were added or removed above it.
@@ -473,6 +476,16 @@ export class RepoView {
       this.render();
     },
   };
+
+  /** The selected commit's change ID, which a tab carries to another window. */
+  selectedChangeId(): string | null {
+    return (this.log && this.selected >= 0 && this.log.rows[this.selected]?.changeId) || null;
+  }
+
+  /** Selects `changeId` when the log first loads, if it's there. */
+  selectOnLoad(changeId: string) {
+    this.initialChange = changeId;
+  }
 
   /** Called when the tab is shown. */
   activate() {

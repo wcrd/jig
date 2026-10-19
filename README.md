@@ -25,6 +25,7 @@ While I built this for the 2 reasons above, `jig` also supports most of the othe
 - Add, forget and delete workspaces
 - Run any `jj` command, your aliases included, with `:`
 - Oplog viewer
+- Multiple windows: drag tabs to reorder them, onto another window, or out into a new one
 - `jjui` key bindings (press `?` for shortcuts)
 
 ### Conflict resolver
