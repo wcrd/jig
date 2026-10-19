@@ -238,6 +238,23 @@ fn open_url(url: String) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+/// Opens a repo's folder in Finder, or in Terminal.
+#[tauri::command]
+fn open_folder(path: String, app: Option<String>) -> Result<(), String> {
+    if !std::path::Path::new(&path).is_dir() {
+        return Err(format!("not a folder: {path}"));
+    }
+    let mut command = std::process::Command::new("open");
+    match app.as_deref() {
+        None => {}
+        Some("Terminal") => {
+            command.args(["-a", "Terminal"]);
+        }
+        Some(other) => return Err(format!("can't open folders in {other}")),
+    }
+    command.arg(&path).spawn().map(|_| ()).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 async fn jj_bookmark_create(
     path: String,
@@ -824,6 +841,7 @@ pub fn run() {
             jj_git_import,
             jj_snapshot,
             open_url,
+            open_folder,
             jj_git_push,
             jj_rebase,
             jj_set_parents,

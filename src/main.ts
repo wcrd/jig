@@ -3,11 +3,11 @@
 
 import { open } from "@tauri-apps/plugin-dialog";
 
-import { fetchInitialRepo, isTauri, storage } from "./api";
+import { fetchInitialRepo, isTauri, openFolder, storage } from "./api";
 import { escapeHtml } from "./format";
 import { RepoView } from "./repoview";
 import { applyPalette, applyTheme, showSettings } from "./settings";
-import { dismissToasts, notify } from "./ui";
+import { type MenuEntry, copy, dismissToasts, notify, showMenu } from "./ui";
 import {
   type Bounds,
   type TabDrop,
@@ -83,14 +83,36 @@ function saveTabs() {
 
 const leavesWindow = (target: DropTarget) => target?.kind === "window" || target?.kind === "new";
 
+/**
+ * For tabs that share a name, the fewest parent folders that tell them
+ * apart: `work/repo` and `personal/repo` show `work` and `personal`, and
+ * `a/x/repo` and `b/x/repo` show `a/x` and `b/x`.
+ */
+function nameHints(): Map<RepoView, string> {
+  const groups = new Map<string, RepoView[]>();
+  for (const view of views) groups.set(view.name, [...(groups.get(view.name) ?? []), view]);
+  const hints = new Map<RepoView, string>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    const parents = group.map((view) => view.path.split("/").filter(Boolean).slice(0, -1));
+    const deepest = Math.max(...parents.map((p) => p.length));
+    for (let depth = 1; depth <= deepest; depth++) {
+      const labels = parents.map((p) => p.slice(-depth).join("/"));
+      if (new Set(labels).size === labels.length || depth === deepest) {
+        group.forEach((view, i) => labels[i] && hints.set(view, labels[i]));
+        break;
+      }
+    }
+  }
+  return hints;
+}
+
 function renderTabs() {
-  // Show the parent folder too when two tabs share a name.
-  const counts = new Map<string, number>();
-  for (const view of views) counts.set(view.name, (counts.get(view.name) ?? 0) + 1);
+  const hints = nameHints();
   tabList.innerHTML = views
     .map((view, i) => {
-      const parent = view.path.split("/").filter(Boolean).slice(-2, -1)[0] ?? "";
-      const hint = (counts.get(view.name) ?? 0) > 1 && parent ? ` <span class="tab-hint">${escapeHtml(parent)}</span>` : "";
+      const parent = hints.get(view);
+      const hint = parent ? ` <span class="tab-hint">${escapeHtml(parent)}</span>` : "";
       const dragged = drag?.moved && drag.view === view;
       const classes = ["tab", view === active && "active", dragged && "dragging", dragged && leavesWindow(drag!.target) && "leaving"];
       return `<div class="${classes.filter(Boolean).join(" ")}" data-index="${i}" title="${escapeHtml(view.path)}">
@@ -275,6 +297,15 @@ function cancelDrag() {
   endDragState(d);
 }
 
+/** Moves a tab into a window of its own, with its selected commit. */
+async function moveToNewWindow(view: RepoView, { atCursor = false } = {}) {
+  const path = view.path;
+  const changeId = view.selectedChangeId();
+  const session: WindowSession = { tabs: [path], active: path, selected: changeId ? { [path]: changeId } : undefined };
+  await openWindow(session, { atCursor });
+  closeTab(view);
+}
+
 async function dropTab(d: TabDrag, event: PointerEvent) {
   // The last lookup may be behind where the tab was let go.
   const target = await targetAt(event);
@@ -289,9 +320,7 @@ async function dropTab(d: TabDrag, event: PointerEvent) {
     }
     // A window's only tab dragged out is already in a window of its own.
     if (target?.kind === "new" && views.length > 1) {
-      const session: WindowSession = { tabs: [path], active: path, selected: changeId ? { [path]: changeId } : undefined };
-      await openWindow(session, { atCursor: true });
-      closeTab(d.view);
+      await moveToNewWindow(d.view, { atCursor: true });
       return;
     }
   } catch (err) {
@@ -349,6 +378,28 @@ tabList.addEventListener("pointerup", (event) => {
   else endDragState(d);
 });
 tabList.addEventListener("pointercancel", cancelDrag);
+
+tabList.addEventListener("contextmenu", (event) => {
+  const tab = (event.target as HTMLElement).closest<HTMLElement>(".tab");
+  if (!tab) return;
+  event.preventDefault();
+  const view = views[Number(tab.dataset.index)];
+  const entries: MenuEntry[] = [
+    { text: "Open in Finder", action: () => openFolder(view.path).catch((err) => notify(String(err))) },
+    { text: "Open in Terminal", action: () => openFolder(view.path, "Terminal").catch((err) => notify(String(err))) },
+    { text: "Copy Path", action: () => copy(view.path) },
+    "separator",
+    {
+      text: "Move to New Window",
+      enabled: views.length > 1,
+      action: () => moveToNewWindow(view).catch((err) => notify(`Couldn't move the tab: ${err}`)),
+    },
+    "separator",
+    { text: "Close Tab", shortcut: "CmdOrCtrl+W", action: () => closeTab(view) },
+    { text: "Close Other Tabs", enabled: views.length > 1, action: () => views.filter((v) => v !== view).forEach(closeTab) },
+  ];
+  showMenu(entries);
+});
 // Never leave a drag going once its pointer is gone.
 tabList.addEventListener("lostpointercapture", cancelDrag);
 
