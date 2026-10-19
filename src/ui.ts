@@ -7,6 +7,7 @@ import { ask } from "@tauri-apps/plugin-dialog";
 
 import { isTauri } from "./api";
 import { escapeHtml } from "./format";
+import { toastTime } from "./settings";
 import type { CommandOutput } from "./types";
 
 export type MenuEntry =
@@ -101,10 +102,47 @@ const toasts = (() => {
   return el;
 })();
 
+// A ring that drains while a toast waits to close; its circumference is
+// --ring in the stylesheet.
+const TIMER = `<span class="toast-timer" title="Closes by itself; hover to keep it open"><svg viewBox="0 0 16 16" width="12" height="12"><circle class="toast-timer-track" cx="8" cy="8" r="6"/><circle class="toast-timer-left" cx="8" cy="8" r="6"/></svg></span>`;
+
+/**
+ * Closes `toast` after `ms`, draining its ring meanwhile. The toast closes
+ * when the ring's animation ends, so hovering, which pauses the animation,
+ * holds it open.
+ */
+function closeAfter(toast: HTMLElement, ms: number) {
+  toast.querySelector(".toast-close")!.insertAdjacentHTML("beforebegin", TIMER);
+  const ring = toast.querySelector<SVGElement>(".toast-timer-left")!;
+  ring.style.animationDuration = `${ms}ms`;
+  ring.addEventListener("animationend", () => toast.remove());
+}
+
+/** Closes every toast but those for commands still running; returns whether there were any. */
+export function dismissToasts(): boolean {
+  const done = [...toasts.querySelectorAll(".toast:not(.running)")];
+  for (const toast of done) toast.remove();
+  return done.length > 0;
+}
+
+/** Counts a failure again on the toast already showing it, and moves that toast to the newest place. */
+function repeatFailure(toast: HTMLElement) {
+  const count = Number(toast.dataset.count ?? 1) + 1;
+  toast.dataset.count = String(count);
+  let badge = toast.querySelector(".toast-count");
+  if (!badge) {
+    toast.querySelector(".toast-close")!.insertAdjacentHTML("beforebegin", `<span class="toast-count"></span>`);
+    badge = toast.querySelector(".toast-count")!;
+  }
+  badge.textContent = `×${count}`;
+  toasts.appendChild(toast);
+}
+
 /**
  * Runs a jj command, showing a toast while it runs and with its result
- * afterwards. Failures stay until dismissed; successes fade out, unless
- * `keepOutput` and there's output to read.
+ * afterwards. Failures stay until closed, and a repeat of one showing adds
+ * to its count; successes close after the time set in Settings (twice that
+ * with Undo), unless `keepOutput` and there's output to read.
  */
 export async function runWithToast(
   label: string,
@@ -124,6 +162,16 @@ export async function runWithToast(
     output = { success: false, stdout: "", stderr: String(err), command: "" };
   }
   const text = [output.stderr, output.stdout].map((s) => s.trim()).filter(Boolean).join("\n");
+  const key = `${label}\n${output.command}\n${text}`;
+  if (!output.success) {
+    const same = [...toasts.querySelectorAll<HTMLElement>(".toast.failure")].find((t) => t.dataset.key === key);
+    if (same) {
+      toast.remove();
+      repeatFailure(same);
+      return false;
+    }
+    toast.dataset.key = key;
+  }
   toast.className = `toast ${output.success ? "success" : "failure"}${keepOutput ? " wide" : ""}`;
   toast.innerHTML =
     `<div class="toast-title">${output.success ? "✓" : "✕"} ${escapeHtml(label)}` +
@@ -138,19 +186,18 @@ export async function runWithToast(
     undo?.();
   });
   // Leave time to undo history changes.
-  if (output.success && !(keepOutput && text)) setTimeout(dismiss, undo ? 10000 : 5000);
+  if (output.success && !(keepOutput && text)) closeAfter(toast, undo ? 2 * toastTime() : toastTime());
   return output.success;
 }
 
-/** A short message in a toast that fades out. */
+/** A short message in a toast that closes after the time set in Settings. */
 export function notify(message: string) {
   const toast = document.createElement("div");
   toast.className = "toast";
   toast.innerHTML = `<div class="toast-title">${escapeHtml(message)}<button class="toast-close" title="Dismiss">×</button></div>`;
   toasts.appendChild(toast);
-  const dismiss = () => toast.remove();
-  toast.querySelector(".toast-close")!.addEventListener("click", dismiss);
-  setTimeout(dismiss, 8000);
+  toast.querySelector(".toast-close")!.addEventListener("click", () => toast.remove());
+  closeAfter(toast, toastTime());
 }
 
 export async function copy(text: string) {
@@ -272,6 +319,7 @@ const HELP: [string, [string, string][]][] = [
       ["⌘T  ⌘W", "Open / close tab"],
       ["⌘N  ⇧⌘W", "New / close window"],
       ["⌘1–9", "Switch tab"],
+      ["Esc", "Close toasts"],
       ["?", "This help"],
       ["⌘,", "Settings"],
     ],

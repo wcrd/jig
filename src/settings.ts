@@ -1,4 +1,5 @@
-// App settings: the theme and the graph's lane palette. The theme is the
+// App settings: the theme, the graph's lane palette and dates, and how long
+// toasts stay. The theme is the
 // `data-theme` attribute on <html>, which the stylesheet keys off. Palettes
 // are written into a style element as --lane-N, so switching either recolours
 // the graph without a re-render.
@@ -129,6 +130,19 @@ function setGraphDate(choice: GraphDate) {
   window.dispatchEvent(new Event("graph-date-change"));
 }
 
+const TOAST_SECONDS = [3, 5, 8, 15];
+const DEFAULT_TOAST_SECONDS = 5;
+
+function toastSeconds(): number {
+  const seconds = Number(storage("toastSeconds"));
+  return TOAST_SECONDS.includes(seconds) ? seconds : DEFAULT_TOAST_SECONDS;
+}
+
+/** How long toasts that close by themselves stay, in milliseconds. */
+export function toastTime(): number {
+  return toastSeconds() * 1000;
+}
+
 function swatches(colors: string[], cls: string): string {
   return `<span class="swatches ${cls}">${colors.map((c) => `<span style="background:${c}"></span>`).join("")}</span>`;
 }
@@ -156,6 +170,10 @@ export function showSettings() {
     `<div class="theme-options graph-date-options">` +
     GRAPH_DATES.map(([id, name]) => `<button data-graph-date="${id}"${id === graphDateChoice ? ` class="on"` : ""}>${name}</button>`).join("") +
     `</div>` +
+    `<div class="list-section">Toasts stay for</div>` +
+    `<div class="theme-options toast-time-options">` +
+    TOAST_SECONDS.map((s) => `<button data-toast-seconds="${s}"${s === toastSeconds() ? ` class="on"` : ""}>${s} s</button>`).join("") +
+    `</div>` +
     `<div class="list-section">Graph colours</div>` +
     `<div class="palette-options">` +
     PALETTES.map(
@@ -175,6 +193,13 @@ export function showSettings() {
     if (input.name === "palette") applyPalette(input.value);
   });
   dialog.addEventListener("click", (event) => {
+    const toastButton = (event.target as HTMLElement).closest<HTMLElement>("[data-toast-seconds]");
+    if (toastButton) {
+      const seconds = Number(toastButton.dataset.toastSeconds);
+      storage("toastSeconds", seconds === DEFAULT_TOAST_SECONDS ? null : String(seconds));
+      for (const b of dialog.querySelectorAll(".toast-time-options button")) b.classList.toggle("on", b === toastButton);
+      return;
+    }
     const dateButton = (event.target as HTMLElement).closest<HTMLElement>("[data-graph-date]");
     if (dateButton) {
       setGraphDate(dateButton.dataset.graphDate as GraphDate);

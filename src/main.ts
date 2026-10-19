@@ -7,7 +7,7 @@ import { fetchInitialRepo, isTauri, storage } from "./api";
 import { escapeHtml } from "./format";
 import { RepoView } from "./repoview";
 import { applyPalette, applyTheme, showSettings } from "./settings";
-import { notify } from "./ui";
+import { dismissToasts, notify } from "./ui";
 import {
   type Bounds,
   type TabDrop,
@@ -435,8 +435,17 @@ window.addEventListener("keydown", (event) => {
     cycleTab(event.key === "[" || event.shiftKey && event.key === "Tab" ? -1 : 1);
   } else if (active?.handleKey(event)) {
     event.preventDefault();
+  } else if (event.key === "Escape" && !event.defaultPrevented && !usesEscape(event) && dismissToasts()) {
+    // Esc that nothing else wanted clears the toasts.
+    event.preventDefault();
   }
 });
+
+/** Whether Esc already means something where it was pressed: leaving a text field or closing a dialog. */
+function usesEscape(event: KeyboardEvent): boolean {
+  const target = event.target instanceof Element ? event.target : null;
+  return !!target?.closest("input, textarea, select, [contenteditable]") || !!document.querySelector("dialog[open]");
+}
 
 // Only the visible tab polls; others catch up when shown.
 window.addEventListener("focus", () => active?.pollForChanges());

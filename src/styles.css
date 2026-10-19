@@ -1898,6 +1898,57 @@ dialog.prompt input:focus {
   margin-left: 4px;
 }
 
+/* How many times a failure showing has happened again. */
+.toast-count {
+  margin-left: auto;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--conflict) 14%, var(--bg));
+  font-size: 11px;
+}
+
+/* Drains while the toast waits to close; hovering holds it. */
+.toast-timer {
+  --ring: 37.7; /* 2π × the circles' radius of 6 */
+  display: grid;
+  margin-left: auto;
+}
+
+.toast-undo + .toast-timer,
+.toast-timer + .toast-close,
+.toast-count + .toast-close {
+  margin-left: 4px;
+}
+
+.toast-timer svg {
+  transform: rotate(-90deg);
+}
+
+.toast-timer circle {
+  fill: none;
+  stroke-width: 2;
+}
+
+.toast-timer-track {
+  stroke: var(--border);
+}
+
+.toast-timer-left {
+  stroke: var(--muted);
+  stroke-dasharray: var(--ring);
+  animation: toast-drain 5s linear forwards;
+}
+
+.toast:hover .toast-timer-left {
+  animation-play-state: paused;
+}
+
+@keyframes toast-drain {
+  to {
+    stroke-dashoffset: var(--ring);
+  }
+}
+
 .row.abandon-marked {
   --node-bg: color-mix(in srgb, var(--conflict) 12%, var(--bg));
   background: color-mix(in srgb, var(--conflict) 12%, var(--bg));
