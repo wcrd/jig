@@ -1884,7 +1884,9 @@ dialog.prompt input:focus {
 }
 
 .toast-undo {
+  flex: none;
   margin-left: auto;
+  white-space: nowrap;
   padding: 1px 10px;
   border: 1px solid var(--border);
   border-radius: 5px;

@@ -152,6 +152,33 @@ pub fn run_git(root: &Path, git_dir: &Path, args: &[&str]) -> Result<CommandOutp
     })
 }
 
+/// `git patch-id --stable` of `commit`'s changes: the same for two commits
+/// making the same change, whatever their parents. None for a commit with no
+/// changes git can see.
+pub fn git_patch_id(git_dir: &Path, commit: &str) -> Result<Option<String>> {
+    use std::io::Write;
+    validate_revision(commit)?;
+    let git = git_binary()?;
+    let git_dir = format!("--git-dir={}", git_dir.display());
+    let diff = Command::new(git)
+        .args([git_dir.as_str(), "diff-tree", "-p", commit])
+        .stdin(std::process::Stdio::null())
+        .output()
+        .with_context(|| format!("failed to run {}", git.display()))?;
+    if !diff.status.success() {
+        bail!("git diff-tree failed: {}", String::from_utf8_lossy(&diff.stderr).trim());
+    }
+    let mut child = Command::new(git)
+        .args([git_dir.as_str(), "patch-id", "--stable"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .with_context(|| format!("failed to run {}", git.display()))?;
+    child.stdin.take().context("no stdin for git patch-id")?.write_all(&diff.stdout)?;
+    let out = child.wait_with_output()?;
+    Ok(String::from_utf8_lossy(&out.stdout).split_whitespace().next().map(str::to_owned))
+}
+
 impl CommandOutput {
     /// An empty, successful result to append commands to.
     pub fn empty() -> Self {

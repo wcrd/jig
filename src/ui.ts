@@ -190,14 +190,27 @@ export async function runWithToast(
   return output.success;
 }
 
-/** A short message in a toast that closes after the time set in Settings. */
-export function notify(message: string) {
+/**
+ * A short message in a toast that closes after the time set in Settings.
+ * One offering an `action` stays until closed, since it waits on a choice.
+ */
+export function notify(message: string, action?: { label: string; run: () => void }) {
   const toast = document.createElement("div");
   toast.className = "toast";
-  toast.innerHTML = `<div class="toast-title">${escapeHtml(message)}<button class="toast-close" title="Dismiss">×</button></div>`;
+  toast.innerHTML =
+    `<div class="toast-title">${escapeHtml(message)}` +
+    (action ? `<button class="toast-undo toast-action">${escapeHtml(action.label)}</button>` : "") +
+    `<button class="toast-close" title="Dismiss">×</button></div>`;
   toasts.appendChild(toast);
   toast.querySelector(".toast-close")!.addEventListener("click", () => toast.remove());
-  closeAfter(toast, toastTime());
+  if (action) {
+    toast.querySelector(".toast-action")!.addEventListener("click", () => {
+      toast.remove();
+      action.run();
+    });
+  } else {
+    closeAfter(toast, toastTime());
+  }
 }
 
 export async function copy(text: string) {

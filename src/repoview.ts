@@ -2,7 +2,7 @@
 // its state. Each tab owns a RepoView, so switching tabs keeps scroll
 // position, selection and everything else.
 
-import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
+import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { OpLogPanel } from "./oplog";
@@ -271,7 +271,7 @@ export class RepoView {
       this.updatePending();
     });
     this.ref("refresh").addEventListener("click", () => this.refresh());
-    this.ref("fetch").addEventListener("click", () => this.act("Fetch", () => jj.gitFetch(this.path)));
+    this.ref("fetch").addEventListener("click", () => this.fetch());
     this.ref("push").addEventListener("click", () => {
       const remotes = this.remotes();
       if (remotes.length <= 1) return this.act("Push", () => jj.gitPush(this.path));
@@ -594,10 +594,12 @@ export class RepoView {
         return true;
       case "g":
         showMenu([
-          { text: "Fetch", action: () => this.act("Fetch", () => jj.gitFetch(this.path)) },
+          { text: "Fetch", action: () => this.fetch() },
           this.remotes().length > 1
             ? { text: "Push to", items: this.pushAllEntries(this.remotes()) }
             : { text: "Push", action: () => this.act("Push", () => jj.gitPush(this.path)) },
+          "separator",
+          { text: "Clean Up Landed Commits", action: () => this.cleanUpLanded() },
         ]);
         return true;
       case "L":
@@ -1353,12 +1355,22 @@ export class RepoView {
   /**
    * Runs a jj command with a toast, then reloads to show its effect;
    * resolves to whether it succeeded. `undo` offers an Undo button, a number
-   * for commands that make more than one operation. `keepOutput` leaves the
-   * toast up when the command printed something.
+   * for commands that make more than one operation, or how to undo them.
+   * `keepOutput` leaves the toast up when the command printed something.
    */
-  private async act(label: string, run: () => Promise<CommandOutput>, options: { undo?: boolean | number; keepOutput?: boolean } = {}) {
-    const steps = options.undo === true ? 1 : options.undo || 0;
-    const undo = steps > 0 ? () => this.act("Undo", () => this.undoSteps(steps)) : undefined;
+  private async act(
+    label: string,
+    run: () => Promise<CommandOutput>,
+    options: { undo?: boolean | number | (() => Promise<CommandOutput>); keepOutput?: boolean } = {},
+  ) {
+    const undoWith = options.undo;
+    const steps = undoWith === true ? 1 : typeof undoWith === "number" ? undoWith : 0;
+    const undo =
+      typeof undoWith === "function"
+        ? () => this.act("Undo", undoWith)
+        : steps > 0
+          ? () => this.act("Undo", () => this.undoSteps(steps))
+          : undefined;
     this.acting++;
     let ok: boolean;
     try {
@@ -1368,6 +1380,45 @@ export class RepoView {
     }
     await this.load({ keepPosition: true });
     return ok;
+  }
+
+  /** Fetches, then offers to clean up commits that landed on the remote as other commits. */
+  private async fetch(remote: string | null = null) {
+    const ok = await this.act(remote ? `Fetch ${remote}` : "Fetch", () => jj.gitFetch(this.path, remote));
+    if (!ok) return;
+    const leftovers = await fetchLandedLeftovers(this.path).catch(() => []);
+    if (leftovers.length === 0) return;
+    const what =
+      leftovers.length === 1
+        ? `“${leftovers[0].summary}” already landed on the remote as another commit`
+        : `${leftovers.length} local commits already landed on the remote as other commits`;
+    notify(what, { label: "Clean Up", run: () => this.replaceLanded() });
+  }
+
+  /** Finds commits that landed on a remote as other commits, and offers to replace them with their copies. */
+  private async cleanUpLanded() {
+    let leftovers;
+    try {
+      leftovers = await fetchLandedLeftovers(this.path);
+    } catch (err) {
+      notify(`Couldn't look for landed commits: ${err}`);
+      return;
+    }
+    if (leftovers.length === 0) {
+      notify("No local commits have landed on a remote as other commits");
+      return;
+    }
+    const list = leftovers.map((l) => `• ${l.changeId.slice(0, 8)} ${l.summary} → ${l.landedChangeId.slice(0, 8)}`).join("\n");
+    const message =
+      `These commits already landed on a remote as other commits:\n\n${list}\n\n` +
+      "Their bookmarks move to the landed copies, commits on top of them move onto the copies, and they're abandoned.";
+    if (await confirm(message, "Clean Up Landed Commits", "Clean Up")) this.replaceLanded();
+  }
+
+  /** Replaces landed commits with their copies; Undo restores the operation before. */
+  private async replaceLanded() {
+    const before = await fetchHeadOpId(this.path);
+    this.act("Clean up landed commits", () => jj.replaceLanded(this.path), { undo: () => jj.opRestore(this.path, before) });
   }
 
   /** `jj undo` `steps` times, as one result. */
@@ -1705,7 +1756,7 @@ export class RepoView {
     if (item.kind === "remoteRoot" && item.remote) {
       const remote = item.remote;
       const web = remoteWebUrl(item.url ?? null);
-      entries.push({ text: `Fetch from ${remote}`, action: () => this.act(`Fetch ${remote}`, () => jj.gitFetch(this.path, remote)) });
+      entries.push({ text: `Fetch from ${remote}`, action: () => this.fetch(remote) });
       if (web) entries.push({ text: "Open in Browser", action: () => openUrl(web) });
       if (item.url) entries.push({ text: "Copy URL", action: () => copy(item.url!) });
       showMenu(entries);

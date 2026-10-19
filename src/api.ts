@@ -73,6 +73,21 @@ export function fetchInitialRepo(): Promise<{ path: string; explicit: boolean } 
   return invoke("initial_repo");
 }
 
+/** A local commit that already landed on a remote as another commit, by a forge's rebase-and-merge. */
+export interface Leftover {
+  commitId: string;
+  changeId: string;
+  summary: string;
+  bookmarks: string[];
+  landedCommitId: string;
+  landedChangeId: string;
+}
+
+export function fetchLandedLeftovers(path: string): Promise<Leftover[]> {
+  if (!isTauri) return Promise.resolve([]);
+  return invoke<Leftover[]>("landed_leftovers", { path });
+}
+
 /** Repository changes, run through the user's `jj` so it behaves exactly as jj does. */
 export const jj = {
   bookmarkCreate: (path: string, name: string, revision: string) =>
@@ -133,6 +148,8 @@ export const jj = {
     invoke<CommandOutput>("jj_workspace_add", { path, name, destination, revision }),
   workspaceForget: (path: string, name: string) => invoke<CommandOutput>("jj_workspace_forget", { path, name }),
   workspaceDelete: (path: string, name: string) => invoke<CommandOutput>("jj_workspace_delete", { path, name }),
+  /** Replaces local commits that landed on a remote with their copies: moves bookmarks, rebases children, abandons. */
+  replaceLanded: (path: string) => invoke<CommandOutput>("jj_replace_landed", { path }),
   undo: (path: string) => invoke<CommandOutput>("jj_undo", { path }),
   redo: (path: string) => invoke<CommandOutput>("jj_redo", { path }),
 };

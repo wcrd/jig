@@ -1,6 +1,7 @@
 pub mod conflict;
 pub mod diff;
 pub mod jj_cli;
+pub mod landed;
 pub mod layout;
 pub mod repo;
 pub mod resolve_tool;
@@ -236,6 +237,39 @@ fn open_url(url: String) -> Result<(), String> {
         .spawn()
         .map(|_| ())
         .map_err(|e| e.to_string())
+}
+
+fn workspace_root(path: &str) -> anyhow::Result<PathBuf> {
+    repo::find_workspace_root(&PathBuf::from(path)).ok_or_else(|| anyhow::anyhow!("{path} is not inside a jj repository"))
+}
+
+/// Local commits that already landed on a remote as other commits.
+#[tauri::command]
+async fn landed_leftovers(path: String) -> Result<Vec<landed::Leftover>, String> {
+    blocking(move || landed::find(&workspace_root(&path)?)).await
+}
+
+/// Replaces local commits that already landed on a remote with their copies,
+/// finding them again so nothing acts on a stale list.
+#[tauri::command]
+async fn jj_replace_landed(path: String) -> Result<jj_cli::CommandOutput, String> {
+    blocking(move || {
+        let root = workspace_root(&path)?;
+        let leftovers = landed::find(&root)?;
+        let mut combined = jj_cli::CommandOutput::empty();
+        if leftovers.is_empty() {
+            combined.stdout = "No local commits have landed on a remote.".to_owned();
+            return Ok(combined);
+        }
+        for args in landed::replace_commands(&root, &leftovers)? {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            if !combined.append(jj_cli::run(&root, &args)?) {
+                break;
+            }
+        }
+        Ok(combined)
+    })
+    .await
 }
 
 /// Opens a repo's folder in Finder, or in Terminal.
@@ -842,6 +876,8 @@ pub fn run() {
             jj_snapshot,
             open_url,
             open_folder,
+            landed_leftovers,
+            jj_replace_landed,
             jj_git_push,
             jj_rebase,
             jj_set_parents,
