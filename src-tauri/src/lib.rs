@@ -3,6 +3,7 @@ pub mod diff;
 pub mod jj_cli;
 pub mod landed;
 pub mod layout;
+pub mod menu;
 pub mod repo;
 pub mod resolve_tool;
 pub mod split_tool;
@@ -849,6 +850,8 @@ pub fn run() {
         .manage(windows::WindowOrder::default())
         .manage(windows::WindowInits::default())
         .on_window_event(windows::on_window_event)
+        .menu(menu::build)
+        .on_menu_event(menu::on_event)
         .invoke_handler(tauri::generate_handler![
             load_log,
             commit_diff,

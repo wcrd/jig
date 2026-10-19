@@ -7,7 +7,7 @@ import { fetchInitialRepo, isTauri, openFolder, storage } from "./api";
 import { escapeHtml } from "./format";
 import { RepoView } from "./repoview";
 import { applyPalette, applyTheme, showSettings } from "./settings";
-import { type MenuEntry, copy, dismissToasts, notify, showMenu } from "./ui";
+import { type MenuEntry, copy, dismissToasts, notify, showHelp, showMenu } from "./ui";
 import {
   type Bounds,
   type TabDrop,
@@ -443,6 +443,20 @@ function showTab(path: string) {
   focusWindow();
 }
 
+/** Commands from the menu bar, by menu item id; their shortcuts are handled below. */
+const MENU_COMMANDS: Record<string, () => void> = {
+  "new-window": () => openWindow({ tabs: [], active: null }),
+  "new-tab": chooseRepo,
+  "close-tab": () => active && closeTab(active),
+  "close-window": closeWindow,
+  settings: showSettings,
+  find: () => active?.find(),
+  reload: () => active?.load({ keepPosition: true }),
+  "next-tab": () => cycleTab(1),
+  "previous-tab": () => cycleTab(-1),
+  help: showHelp,
+};
+
 $("new-tab").addEventListener("click", chooseRepo);
 $("empty-open").addEventListener("click", chooseRepo);
 
@@ -579,6 +593,7 @@ async function start() {
     onWindowEvent<string>("show-tab", showTab),
     onWindowEvent<WindowOffset | null>("tab-drag-over", showDropMarker),
     onWindowEvent<TabDrop>("tab-drop", acceptTab),
+    onWindowEvent<string>("menu", (id) => MENU_COMMANDS[id]?.()),
   ]);
   watchWindow({
     changed: trackBounds,
