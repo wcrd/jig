@@ -3,6 +3,8 @@
 //!
 //! Their shortcuts reach the page first, which handles them itself and
 //! stops them; the menu items run them when clicked.
+//!
+//! On macOS the Dock icon's menu has New Window too.
 
 use tauri::menu::{
     AboutMetadata, HELP_SUBMENU_ID, Menu, MenuEvent, MenuItem, PredefinedMenuItem, Submenu, WINDOW_SUBMENU_ID,
@@ -105,4 +107,40 @@ pub fn on_event<R: Runtime>(app: &AppHandle<R>, event: MenuEvent) {
     if let Some(label) = label {
         let _ = app.emit_to(label, "menu", event.id().0.clone());
     }
+}
+
+/// Gives the Dock icon's menu a New Window item, sent like the menu bar's.
+/// Tauri has no API for it, so this adds `applicationDockMenu:` to tao's
+/// app delegate. Call on the main thread once the app is built.
+#[cfg(target_os = "macos")]
+pub fn set_dock_menu() {
+    use muda::ContextMenu;
+    use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+    use objc2::{MainThreadMarker, sel};
+    use objc2_app_kit::NSApplication;
+
+    thread_local! {
+        static DOCK_MENU: muda::Menu = {
+            let menu = muda::Menu::new();
+            let _ = menu.append(&muda::MenuItem::with_id("new-window", "New Window", true, None));
+            menu
+        };
+    }
+
+    extern "C-unwind" fn dock_menu(_this: &AnyObject, _cmd: Sel, _sender: *mut AnyObject) -> *mut AnyObject {
+        DOCK_MENU.with(|menu| menu.ns_menu().cast())
+    }
+
+    let Some(mtm) = MainThreadMarker::new() else { return };
+    let ns_app = NSApplication::sharedApplication(mtm);
+    let Some(delegate) = ns_app.delegate() else { return };
+    // SAFETY: `dock_menu` has the selector's signature, as its types say.
+    unsafe {
+        let object: &AnyObject = delegate.as_ref();
+        let class: *const AnyClass = object.class();
+        let imp: Imp = std::mem::transmute(dock_menu as extern "C-unwind" fn(_, _, _) -> _);
+        objc2::ffi::class_addMethod(class as *mut _, sel!(applicationDockMenu:), imp, c"@@:@".as_ptr());
+    }
+    // AppKit notes which delegate methods exist when the delegate is set.
+    ns_app.setDelegate(Some(&delegate));
 }

@@ -852,6 +852,11 @@ pub fn run() {
         .on_window_event(windows::on_window_event)
         .menu(menu::build)
         .on_menu_event(menu::on_event)
+        .setup(|_app| {
+            #[cfg(target_os = "macos")]
+            menu::set_dock_menu();
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             load_log,
             commit_diff,
