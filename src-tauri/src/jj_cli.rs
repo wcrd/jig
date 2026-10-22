@@ -616,22 +616,17 @@ fn move_to_trash(path: &Path) -> Result<(), trash::Error> {
     trash.delete(path)
 }
 
-pub fn squash_args(revision: &str, into: &str, paths: &[String]) -> Result<Vec<String>> {
-    validate_revision(revision)?;
+pub fn squash_args(revisions: &[String], into: &str, paths: &[String]) -> Result<Vec<String>> {
+    validate_revisions(revisions)?;
     validate_revision(into)?;
     for p in paths {
         if p.is_empty() || p.starts_with('-') {
             bail!("invalid path: {p:?}");
         }
     }
-    let mut args = strings(&[
-        "squash",
-        "--from",
-        revision,
-        "--into",
-        into,
-        "--use-destination-message",
-    ]);
+    let mut args = strings(&["squash"]);
+    push_flagged(&mut args, "--from", revisions);
+    args.extend(strings(&["--into", into, "--use-destination-message"]));
     if !paths.is_empty() {
         args.push("--".to_owned());
         args.extend(paths.iter().cloned());
@@ -884,16 +879,21 @@ mod tests {
     #[test]
     fn squash_arg_building() {
         assert_eq!(
-            squash_args("a1", "b2", &[]).unwrap(),
+            squash_args(&v(&["a1"]), "b2", &[]).unwrap(),
             v(&["squash", "--from", "a1", "--into", "b2", "--use-destination-message"])
         );
         assert_eq!(
-            squash_args("a1", "b2", &v(&["src/x.rs"])).unwrap(),
+            squash_args(&v(&["a1", "c3"]), "b2", &[]).unwrap(),
+            v(&["squash", "--from", "a1", "--from", "c3", "--into", "b2", "--use-destination-message"])
+        );
+        assert_eq!(
+            squash_args(&v(&["a1"]), "b2", &v(&["src/x.rs"])).unwrap(),
             v(&["squash", "--from", "a1", "--into", "b2", "--use-destination-message", "--", "src/x.rs"])
         );
-        assert!(squash_args("a1", "b2", &v(&["-x"])).is_err());
-        assert!(squash_args("a1", "b2", &v(&[""])).is_err());
-        assert!(squash_args("a1", "main", &[]).is_err());
+        assert!(squash_args(&v(&["a1"]), "b2", &v(&["-x"])).is_err());
+        assert!(squash_args(&v(&["a1"]), "b2", &v(&[""])).is_err());
+        assert!(squash_args(&v(&["a1"]), "main", &[]).is_err());
+        assert!(squash_args(&[], "b2", &[]).is_err());
     }
 
     #[test]

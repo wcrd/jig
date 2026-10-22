@@ -626,11 +626,11 @@ async fn jj_absorb(path: String, revision: String) -> Result<jj_cli::CommandOutp
 #[tauri::command]
 async fn jj_squash(
     path: String,
-    revision: String,
+    revisions: Vec<String>,
     into: String,
     paths: Vec<String>,
 ) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || jj_cli::squash_args(&revision, &into, &paths)).await
+    jj_in(path, move || jj_cli::squash_args(&revisions, &into, &paths)).await
 }
 
 /// Runs a command line typed by the user (`:`), so their aliases work too.

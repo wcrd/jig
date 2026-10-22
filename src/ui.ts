@@ -272,6 +272,8 @@ const HELP: [string, [string, string][]][] = [
       ["c", "Commit the working copy"],
       ["d", "Full-size diff (↑ ↓ move between files)"],
       ["← →", "Shrink / grow details"],
+      ["Space", "Mark for rebase, squash, copy, revert, abandon"],
+      ["Esc", "Clear marks"],
       ["r", "Rebase"],
       ["⇧S", "Squash"],
       ["s", "Split"],

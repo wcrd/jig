@@ -31,16 +31,17 @@ type Placement = "onto" | "after" | "before";
  * or mouse, then Enter to run it or Esc to cancel. Nothing changes until then.
  */
 type Pending =
-  | { kind: "rebase"; source: number; mode: RebaseMode; placement: Placement; target: number }
-  | { kind: "squash"; source: number; target: number; paths: string[] }
+  /** `sources` are the marked commits, or the selected one; top to bottom. */
+  | { kind: "rebase"; sources: number[]; mode: RebaseMode; placement: Placement; target: number }
+  | { kind: "squash"; sources: number[]; target: number; paths: string[] }
   | { kind: "abandon"; marked: Set<number> }
   /** ⇧M: choose a commit's parents, first parent first; its descendants follow. */
   | { kind: "parents"; source: number; marked: number[] }
   /** A null message leaves that commit with the original description. */
   | { kind: "split"; source: number; message: string | null; secondMessage: string | null }
   /** Cherry-pick (jj duplicate) or revert, placed relative to a target. */
-  | { kind: "duplicate"; source: number; placement: Placement; target: number }
-  | { kind: "revert"; source: number; placement: Placement; target: number };
+  | { kind: "duplicate"; sources: number[]; placement: Placement; target: number }
+  | { kind: "revert"; sources: number[]; placement: Placement; target: number };
 
 /**
  * The pending operation with its rows renumbered by `find`, for a reloaded
@@ -58,8 +59,9 @@ function remapPending(p: Pending, find: (index: number) => number | undefined): 
     case "split":
       return source === undefined ? null : { ...p, source };
     default: {
+      const sources = found(p.sources);
       const target = find(p.target);
-      return source === undefined || target === undefined ? null : { ...p, source, target };
+      return sources.length < p.sources.length || target === undefined ? null : { ...p, sources, target };
     }
   }
 }
@@ -103,6 +105,8 @@ export class RepoView {
   private compareCache = new Map<string, CompareDiff>();
   private relations: Relations | null = null;
   private pending: Pending | null = null;
+  /** Commits marked with Space, which the next rebase, squash, copy, revert or abandon takes. */
+  private marked = new Set<number>();
   private searchBar = new SearchBar();
   /** Where ⌘F searches: the area last clicked in. */
   private searchZone: "graph" | "diff" = "graph";
@@ -347,13 +351,14 @@ export class RepoView {
       this.relations = new Relations(next.rows.length, next.edges);
       // Carry an operation in progress over to the reloaded rows: by commit
       // ID, or by change ID if jj rewrote the commit meanwhile.
+      const byCommit = new Map(next.rows.map((r, i) => [r.commitId, i]));
+      const byChange = new Map(next.rows.map((r, i) => [r.changeId, i]));
+      const find = (i: number) => {
+        const row = previousRows[i];
+        return row && (byCommit.get(row.commitId) ?? byChange.get(row.changeId));
+      };
+      this.marked = new Set([...this.marked].map(find).filter((i) => i !== undefined));
       if (this.pending) {
-        const byCommit = new Map(next.rows.map((r, i) => [r.commitId, i]));
-        const byChange = new Map(next.rows.map((r, i) => [r.changeId, i]));
-        const find = (i: number) => {
-          const row = previousRows[i];
-          return row && (byCommit.get(row.commitId) ?? byChange.get(row.changeId));
-        };
         const kind = this.pending.kind;
         this.pending = remapPending(this.pending, find);
         if (!this.pending) {
@@ -568,6 +573,10 @@ export class RepoView {
       this.setCompare(-1);
       return true;
     }
+    if (event.key === "Escape" && this.marked.size > 0) {
+      this.setMarked(new Set());
+      return true;
+    }
     if (!(event.key in moves)) return false;
     this.select(moves[event.key]);
     return true;
@@ -620,17 +629,20 @@ export class RepoView {
     if (this.selected < 0) return false;
     const row = rows[this.selected];
     switch (event.key) {
+      case " ":
+        this.toggleMarked(this.selected);
+        return true;
       case "r":
-        this.startRebase(this.selected, "revision");
+        this.startRebase(this.sources(), "revision");
         return true;
       case "S":
-        this.startSquash(this.selected);
+        this.startSquash(this.sources());
         return true;
       case "s":
         this.startSplit(this.selected);
         return true;
       case "a":
-        this.startAbandon(this.selected);
+        this.startAbandon(this.sources());
         return true;
       case "n":
         this.newChange(row);
@@ -654,10 +666,10 @@ export class RepoView {
         else this.toggleFullDiff();
         return true;
       case "y":
-        this.startPlaced("duplicate", this.selected);
+        this.startPlaced("duplicate", this.sources());
         return true;
       case "R":
-        this.startPlaced("revert", this.selected);
+        this.startPlaced("revert", this.sources());
         return true;
       case "A":
         this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true });
@@ -712,14 +724,39 @@ export class RepoView {
     );
   }
 
-  private startRebase(source: number, mode: RebaseMode, target?: number) {
+  /** The marked commits, top to bottom; else the selected one. */
+  private sources(): number[] {
+    return this.marked.size > 0 ? [...this.marked].sort((a, b) => a - b) : [this.selected];
+  }
+
+  /** What dragging or right-clicking a commit acts on: the marked commits if it's one of them. */
+  private sourcesAt(index: number): number[] {
+    return this.marked.has(index) ? this.sources() : [index];
+  }
+
+  /** Space: marks or unmarks a commit for the next operation. */
+  private toggleMarked(index: number) {
+    const marked = new Set(this.marked);
+    if (marked.has(index)) marked.delete(index);
+    else marked.add(index);
+    this.setMarked(marked);
+  }
+
+  private setMarked(marked: Set<number>) {
+    this.marked = marked;
+    this.updateStatus();
+    this.render();
+  }
+
+  private startRebase(sources: number[], mode: RebaseMode, target?: number) {
+    const lowest = sources[sources.length - 1];
     this.pending = {
       kind: "rebase",
-      source,
+      sources,
       mode,
       placement: "onto",
-      // Default to the commit's first parent: rebasing there changes nothing.
-      target: target ?? this.relations!.parentsOf(source)[0] ?? source,
+      // Default to the lowest commit's first parent: for one commit, rebasing there changes nothing.
+      target: target ?? this.relations!.parentsOf(lowest)[0] ?? lowest,
     };
     this.compareIndex = -1;
     this.updatePending();
@@ -729,19 +766,20 @@ export class RepoView {
    * Cherry-pick (y) or revert (⇧R): choose where the copy or the undoing
    * commit goes, onto `@` by default since that's usually where you are.
    */
-  private startPlaced(kind: "duplicate" | "revert", source: number) {
+  private startPlaced(kind: "duplicate" | "revert", sources: number[]) {
     const wc = this.log!.rows.findIndex((r) => r.isWorkingCopy);
-    const target = wc >= 0 ? wc : source;
-    this.pending = { kind, source, placement: "onto", target } as Pending;
+    const target = wc >= 0 ? wc : sources[0];
+    this.pending = { kind, sources, placement: "onto", target };
     this.compareIndex = -1;
     this.reveal(target);
     this.updatePending();
   }
 
-  /** Squash a commit (or just `paths` from it) into another; the parent by default. */
-  private startSquash(source: number, paths: string[] = []) {
-    const parent = this.relations!.parentsOf(source)[0];
-    this.pending = { kind: "squash", source, target: parent ?? source, paths };
+  /** Squash commits (or just `paths` from one) into another; the lowest one's parent by default. */
+  private startSquash(sources: number[], paths: string[] = []) {
+    const lowest = sources[sources.length - 1];
+    const parent = this.relations!.parentsOf(lowest)[0];
+    this.pending = { kind: "squash", sources, target: parent ?? lowest, paths };
     this.compareIndex = -1;
     this.updatePending();
   }
@@ -756,8 +794,8 @@ export class RepoView {
     this.updatePending();
   }
 
-  private startAbandon(index: number) {
-    this.pending = { kind: "abandon", marked: new Set([index]) };
+  private startAbandon(sources: number[]) {
+    this.pending = { kind: "abandon", marked: new Set(sources) };
     this.compareIndex = -1;
     this.updatePending();
   }
@@ -809,9 +847,10 @@ export class RepoView {
     const p = this.pending!;
     if (p.kind === "abandon") return p.marked;
     if (p.kind === "parents") return this.relations!.descendants([p.source]);
-    if (p.kind !== "rebase" || p.mode === "revision") return new Set([p.source]);
-    if (p.mode === "source") return this.relations!.descendants([p.source]);
-    return this.relations!.branch([p.source], p.target);
+    if (p.kind === "split") return new Set([p.source]);
+    if (p.kind !== "rebase" || p.mode === "revision") return new Set(p.sources);
+    if (p.mode === "source") return this.relations!.descendants(p.sources);
+    return this.relations!.branch(p.sources, p.target);
   }
 
   private pendingProblem(): string | null {
@@ -842,14 +881,12 @@ export class RepoView {
       return null;
     }
     if (p.kind === "squash") {
-      if (p.target === p.source) return "Pick another commit to squash into";
-      if (rows[p.source].immutable || rows[p.target].immutable) return "Can't squash into or from an immutable commit";
+      if (p.sources.includes(p.target)) return "Pick another commit to squash into";
+      if (p.sources.some((i) => rows[i].immutable) || rows[p.target].immutable) return "Can't squash into or from an immutable commit";
       return null;
     }
     if (p.kind !== "rebase") return null;
-    if (moving.has(p.target) && !(p.mode === "revision" && p.target !== p.source)) {
-      return "Pick a destination outside the commits being moved";
-    }
+    if (moving.has(p.target)) return "Pick a destination outside the commits being moved";
     if ([...moving].some((i) => rows[i].immutable)) return "Some of these commits are immutable";
     return null;
   }
@@ -938,6 +975,9 @@ export class RepoView {
     const id = (i: number) => `<span class="id change-id">${rows[i].changeId.slice(0, 8)}</span>`;
     const summary = (i: number) =>
       `<span class="modebar-summary">${escapeHtml(rows[i].summary || "(no description set)")}</span>`;
+    // One commit with its summary, or the first of several and how many more.
+    const commits = (sources: number[]) =>
+      sources.length === 1 ? `${id(sources[0])} ${summary(sources[0])}` : `${id(sources[0])} <span class="muted">+${sources.length - 1}</span>`;
     const segment = <T extends string>(attr: string, value: T, current: T, label: string, key: string) =>
       `<button class="${value === current ? "active" : ""}" data-${attr}="${value}" title="${key}">${label}</button>`;
     const problem = this.pendingProblem();
@@ -951,7 +991,7 @@ export class RepoView {
         segment("mode", "revision", p.mode, MODE_LABELS.revision, "r") +
         segment("mode", "source", p.mode, MODE_LABELS.source, "s") +
         segment("mode", "branch", p.mode, MODE_LABELS.branch, "⇧B") +
-        `</span>${id(p.source)}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}<span class="segmented">` +
+        `</span>${id(p.sources[0])}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}<span class="segmented">` +
         segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
         segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
         segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "b") +
@@ -961,7 +1001,7 @@ export class RepoView {
     } else if (p.kind === "duplicate" || p.kind === "revert") {
       const title = p.kind === "duplicate" ? "Copy" : "Revert";
       body =
-        `<span class="modebar-title">${title}</span>${id(p.source)} ${summary(p.source)}<span class="segmented">` +
+        `<span class="modebar-title">${title}</span>${commits(p.sources)}<span class="segmented">` +
         segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
         segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
         segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "b") +
@@ -970,7 +1010,8 @@ export class RepoView {
       hint = "↑↓ choose · Enter · Esc";
     } else if (p.kind === "squash") {
       const what = p.paths.length === 0 ? "" : ` <span class="muted">(${p.paths.length === 1 ? escapeHtml(p.paths[0]) : `${p.paths.length} files`})</span>`;
-      body = `<span class="modebar-title">Squash</span>${id(p.source)}${what} <span class="muted">into</span> ${id(p.target)} ${summary(p.target)}`;
+      const from = p.sources.length === 1 ? id(p.sources[0]) : commits(p.sources);
+      body = `<span class="modebar-title">Squash</span>${from}${what} <span class="muted">into</span> ${id(p.target)} ${summary(p.target)}`;
       action = "Squash";
       hint = "↑↓ choose · Enter · Esc";
     } else if (p.kind === "split") {
@@ -1007,19 +1048,24 @@ export class RepoView {
     if (!p || this.pendingProblem()) return;
     const rows = this.log!.rows;
     const short = (i: number) => rows[i].changeId.slice(0, 8);
+    const several = (indexes: number[]) => (indexes.length === 1 ? short(indexes[0]) : `${indexes.length} commits`);
+    const commitIds = (indexes: number[]) => indexes.map((i) => rows[i].commitId);
     this.pending = null;
+    // Marks are used up by the operation that took them.
+    const taken = "sources" in p ? p.sources : p.kind === "abandon" ? [...p.marked] : [];
+    if (taken.some((i) => this.marked.has(i))) this.setMarked(new Set());
     this.updatePending();
     if (p.kind === "rebase") {
       await this.act(
-        `Rebase ${short(p.source)} ${p.placement} ${short(p.target)}`,
-        () => jj.rebase(this.path, [rows[p.source].commitId], p.mode, rows[p.target].commitId, p.placement),
+        `Rebase ${several(p.sources)} ${p.placement} ${short(p.target)}`,
+        () => jj.rebase(this.path, commitIds(p.sources), p.mode, rows[p.target].commitId, p.placement),
         { undo: true },
       );
     } else if (p.kind === "duplicate" || p.kind === "revert") {
       const run = p.kind === "duplicate" ? jj.duplicateTo : jj.revert;
       await this.act(
-        `${p.kind === "duplicate" ? "Copy" : "Revert"} ${short(p.source)} ${p.placement} ${short(p.target)}`,
-        () => run(this.path, [rows[p.source].commitId], rows[p.target].commitId, p.placement),
+        `${p.kind === "duplicate" ? "Copy" : "Revert"} ${several(p.sources)} ${p.placement} ${short(p.target)}`,
+        () => run(this.path, commitIds(p.sources), rows[p.target].commitId, p.placement),
         { undo: true },
       );
     } else if (p.kind === "parents") {
@@ -1030,8 +1076,8 @@ export class RepoView {
       );
     } else if (p.kind === "squash") {
       await this.act(
-        `Squash ${short(p.source)} into ${short(p.target)}`,
-        () => jj.squash(this.path, rows[p.source].commitId, rows[p.target].commitId, p.paths),
+        `Squash ${several(p.sources)} into ${short(p.target)}`,
+        () => jj.squash(this.path, commitIds(p.sources), rows[p.target].commitId, p.paths),
         { undo: true },
       );
     } else if (p.kind === "split") {
@@ -1046,7 +1092,7 @@ export class RepoView {
     } else {
       const marked = [...p.marked].sort((a, b) => a - b);
       await this.act(
-        `Abandon ${marked.length === 1 ? short(marked[0]) : `${marked.length} commits`}`,
+        `Abandon ${several(marked)}`,
         () => jj.abandon(this.path, marked.map((i) => rows[i].commitId)),
         { undo: true },
       );
@@ -1177,7 +1223,7 @@ export class RepoView {
       if (!dragging && Math.abs(e.clientY - startY) < 6) return;
       if (!dragging) {
         dragging = true;
-        this.startRebase(index, e.shiftKey ? "source" : "revision", index);
+        this.startRebase(this.sourcesAt(index), e.shiftKey ? "source" : "revision", index);
         this.root.classList.add("dragging");
       }
       const p = this.pending;
@@ -1193,7 +1239,7 @@ export class RepoView {
       this.root.classList.remove("dragging");
       // Dropping leaves the rebase ready to confirm, with the options visible.
       const p = this.pending;
-      if (dragging && p?.kind === "rebase" && p.target === p.source) this.cancelPending();
+      if (dragging && p?.kind === "rebase" && p.sources.includes(p.target)) this.cancelPending();
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up, { once: true });
@@ -1209,7 +1255,8 @@ export class RepoView {
   private updateStatus() {
     const log = this.log!;
     const count = `${log.rows.length.toLocaleString()} ${log.rows.length === 1 ? "commit" : "commits"}`;
-    this.statusEl.textContent = `${count}${log.truncated ? " (truncated)" : ""} · ${log.elapsedMs} ms`;
+    const marked = this.marked.size > 0 ? ` · ${this.marked.size} marked` : "";
+    this.statusEl.textContent = `${count}${log.truncated ? " (truncated)" : ""}${marked} · ${log.elapsedMs} ms`;
     this.statusEl.title = `Operation ${log.opId}: ${log.opDescription}`;
   }
 
@@ -1253,6 +1300,7 @@ export class RepoView {
       el.classList.toggle("rebase-target", i === target);
       el.classList.toggle("abandon-marked", p?.kind === "abandon" && p.marked.has(i));
       el.classList.toggle("parent-marked", p?.kind === "parents" && p.marked.includes(i));
+      el.classList.toggle("marked", !p && this.marked.has(i));
       el.dataset.placement = i === target && p && "placement" in p ? p.placement : i === target ? "onto" : "";
     }
   }
@@ -1678,14 +1726,14 @@ export class RepoView {
       { text: "Describe…", shortcut: "Shift+D", action: () => this.describe(row), enabled: !row.immutable },
       { text: "Commit…", shortcut: "C", action: () => this.commit(row), enabled: row.isWorkingCopy },
       "separator",
-      { text: "Rebase…", shortcut: "R", action: () => this.startRebase(index, "revision") },
-      { text: "Rebase with Descendants…", action: () => this.startRebase(index, "source") },
-      { text: "Squash into…", shortcut: "Shift+S", action: () => this.startSquash(index), enabled: !row.immutable },
+      { text: "Rebase…", shortcut: "R", action: () => this.startRebase(this.sourcesAt(index), "revision") },
+      { text: "Rebase with Descendants…", action: () => this.startRebase(this.sourcesAt(index), "source") },
+      { text: "Squash into…", shortcut: "Shift+S", action: () => this.startSquash(this.sourcesAt(index)), enabled: !row.immutable },
       { text: "Split…", shortcut: "S", action: () => this.startSplit(index), enabled: !row.immutable },
       { text: "Absorb into Ancestors", shortcut: "Shift+A", action: () => this.act(`Absorb ${row.changeId.slice(0, 8)}`, () => jj.absorb(this.path, row.commitId), { undo: true }), enabled: !row.immutable },
-      { text: "Copy to… (Cherry-pick)", shortcut: "Y", action: () => this.startPlaced("duplicate", index) },
-      { text: "Revert…", shortcut: "Shift+R", action: () => this.startPlaced("revert", index) },
-      { text: "Abandon…", shortcut: "A", action: () => this.startAbandon(index), enabled: !row.immutable },
+      { text: "Copy to… (Cherry-pick)", shortcut: "Y", action: () => this.startPlaced("duplicate", this.sourcesAt(index)) },
+      { text: "Revert…", shortcut: "Shift+R", action: () => this.startPlaced("revert", this.sourcesAt(index)) },
+      { text: "Abandon…", shortcut: "A", action: () => this.startAbandon(this.sourcesAt(index)), enabled: !row.immutable },
       "separator",
       { text: "New Bookmark Here…", action: () => this.createBookmark(row) },
       { text: "New Tag Here…", action: () => this.createTag(row) },
@@ -1741,11 +1789,11 @@ export class RepoView {
         text: "Move to Parent",
         enabled: !row.immutable && parent !== undefined && !this.log!.rows[parent].immutable,
         action: () =>
-          this.act(`Move ${path} to parent`, () => jj.squash(this.path, row.commitId, this.log!.rows[parent!].commitId, [path]), {
+          this.act(`Move ${path} to parent`, () => jj.squash(this.path, [row.commitId], this.log!.rows[parent!].commitId, [path]), {
             undo: true,
           }),
       },
-      { text: "Move to Commit…", enabled: !row.immutable, action: () => this.startSquash(index, [path]) },
+      { text: "Move to Commit…", enabled: !row.immutable, action: () => this.startSquash([index], [path]) },
       "separator",
       { text: "Copy Path", action: () => copy(path) },
     ]);

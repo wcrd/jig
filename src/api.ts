@@ -125,8 +125,8 @@ export const jj = {
     invoke<CommandOutput>("jj_describe", { path, revision, message }),
   duplicate: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_duplicate", { path, revisions }),
   absorb: (path: string, revision: string) => invoke<CommandOutput>("jj_absorb", { path, revision }),
-  squash: (path: string, revision: string, into: string, paths: string[] = []) =>
-    invoke<CommandOutput>("jj_squash", { path, revision, into, paths }),
+  squash: (path: string, revisions: string[], into: string, paths: string[] = []) =>
+    invoke<CommandOutput>("jj_squash", { path, revisions, into, paths }),
   /** `secondMessage` describes the remaining changes' commit, as a second operation. */
   split: (path: string, revision: string, plan: SplitPlan, message: string | null, secondMessage: string | null) =>
     invoke<CommandOutput>("jj_split", { path, revision, plan, message, secondMessage }),
