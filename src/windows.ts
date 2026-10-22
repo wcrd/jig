@@ -33,10 +33,19 @@ export function clientPoint(offset: WindowOffset): { x: number; y: number } {
   return { x: offset.x, y: window.innerHeight - offset.fromBottom };
 }
 
-/** A tab dropped on this window from another one, where it was let go. */
-export interface TabDrop extends WindowOffset {
+/** A tab moving to another window, with the change it has selected. */
+export interface TabHandover {
   path: string;
   changeId: string | null;
+}
+
+/** A tab dropped on this window from another one, where it was let go. */
+export interface TabDrop extends WindowOffset, TabHandover {}
+
+/** Asks the window showing `path` to hand its tab over to window `to`. */
+export interface TabRequest {
+  path: string;
+  to: string;
 }
 
 export interface WindowPoint extends WindowOffset {

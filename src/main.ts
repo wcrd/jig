@@ -11,6 +11,8 @@ import { type MenuEntry, copy, dismissToasts, notify, showHelp, showMenu } from 
 import {
   type Bounds,
   type TabDrop,
+  type TabHandover,
+  type TabRequest,
   type WindowOffset,
   type WindowPoint,
   type WindowSession,
@@ -181,13 +183,14 @@ async function closeIfEmpty() {
   if (others.length > 0 && views.length === 0) closeWindow();
 }
 
-/** Opens `path` in a tab, or switches to its tab, here or in another window. */
+/** Opens `path` in a tab here, or switches to its tab; a tab for it in another window moves here. */
 async function openRepo(path: string) {
   if (!views.some((v) => v.path === path)) {
     const open = new Set(await openWindowLabels());
     for (const [label, session] of savedSessions()) {
       if (label !== windowLabel && open.has(label) && session.tabs.includes(path)) {
-        sendTo(label, "show-tab", path);
+        // It comes back with `take-tab`.
+        sendTo(label, "give-tab", { path, to: windowLabel } satisfies TabRequest);
         return;
       }
     }
@@ -436,10 +439,15 @@ function acceptTab(drop: TabDrop) {
   focusWindow();
 }
 
-function showTab(path: string) {
+/** Hands this window's tab for a repo to the window opening it, which opens it anyway if there's none. */
+async function giveTab({ path, to }: TabRequest) {
   const view = views.find((v) => v.path === path);
-  if (view) activate(view);
-  else openTab(path);
+  await sendTo(to, "take-tab", { path, changeId: view?.selectedChangeId() ?? null } satisfies TabHandover);
+  if (view) closeTab(view);
+}
+
+function takeTab({ path, changeId }: TabHandover) {
+  openTab(path, { changeId });
   focusWindow();
 }
 
@@ -590,7 +598,8 @@ async function start() {
   await Promise.all([
     // Folders macOS hands to the running app (`open -a Jig.app <dir>`, a Dock drop) go to the frontmost window.
     onWindowEvent<string>("open-repo", openRepo),
-    onWindowEvent<string>("show-tab", showTab),
+    onWindowEvent<TabRequest>("give-tab", giveTab),
+    onWindowEvent<TabHandover>("take-tab", takeTab),
     onWindowEvent<WindowOffset | null>("tab-drag-over", showDropMarker),
     onWindowEvent<TabDrop>("tab-drop", acceptTab),
     onWindowEvent<string>("menu", (id) => MENU_COMMANDS[id]?.()),
