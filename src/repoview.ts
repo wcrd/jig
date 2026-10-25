@@ -3,7 +3,7 @@
 // position, selection and everything else.
 
 import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
-import { DetailsPanel } from "./details";
+import { DetailsPanel } from "./details.svelte";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { Relations } from "./relations";
 import { SearchBar, type SearchTarget } from "./search.svelte";
@@ -158,14 +158,7 @@ export class RepoView {
     this.errorEl = this.ref("error");
 
     this.details = new DetailsPanel(
-      {
-        tabs: this.ref("detail-tabs"),
-        info: this.ref("commit-info"),
-        fileHeader: this.ref("file-header"),
-        fileList: this.ref("file-list"),
-        view: this.ref("diff-view"),
-        body: this.ref("details-body"),
-      },
+      this.ref("details"),
       {
         fileText: (commitId, filePath) => fetchFileText(this.path, commitId, filePath),
         fileDiff: (from, to, file, force) => fetchFileDiff(this.path, from, to, file.path, file.sourcePath, force),

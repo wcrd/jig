@@ -2,7 +2,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 
-import type { SplitPlan } from "./details";
+import type { SplitPlan } from "./details.svelte";
 import type { ConflictFile } from "./mergeview";
 import type { CommandOutput, CommitDiff, CompareDiff, FileDiff, FileText, LogResponse, TreeEntry } from "./types";
 
