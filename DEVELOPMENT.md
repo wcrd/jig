@@ -68,6 +68,26 @@ To print the backend's view of a log without any UI:
 cd src-tauri && cargo run --example dump -- /path/to/repo
 ```
 
+## Benchmark
+
+`scripts/bench.mjs` times the UI on a large repo: loading, moving the selection, switching tabs, scrolling the graph and opening a 20,000-line diff, in headless Chrome with the CPU slowed 4×. It builds the app for production with its own fixture, so it doesn't touch `public/`. Make the repo (about 4,000 commits, beside the Jig checkout at `../jig-bench`) and its fixture once:
+
+```bash
+node scripts/make-bench-repo.mjs
+```
+
+```bash
+cd src-tauri && JIG_FIXTURE_DIR=../../jig-bench/fixture cargo run --release --example fixture -- ../../jig-bench/repo 'all()' 60
+```
+
+Then run it before and after a change and compare the medians it prints:
+
+```bash
+node scripts/bench.mjs --runs 5 --label before --out before.json
+```
+
+Chrome isn't the WebKit view the app runs in, so treat the numbers as relative.
+
 ## Screenshots
 
 The README screenshots come from the browser preview with the playground fixture, captured by headless Chrome. With `npm run dev` running:

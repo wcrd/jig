@@ -1,6 +1,7 @@
 //! Writes `public/fixture.json` plus `public/diffs/<commit>.json`,
 //! `public/trees/<commit>.json` and `public/texts/<commit>/<encoded path>.json`
 //! for the first rows, so the UI can be previewed in a plain browser with `npm run dev`.
+//! `JIG_FIXTURE_DIR` writes them somewhere other than `public/`, as the benchmark does.
 //! Usage: cargo run --example fixture -- <repo path> [revset] [diff count]
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -8,7 +9,9 @@ fn main() {
     let revset = args.get(2).map(String::as_str).filter(|s| !s.is_empty());
     let count: usize = args.get(3).and_then(|s| s.parse().ok()).unwrap_or(40);
 
-    let public = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public");
+    let public = std::env::var_os("JIG_FIXTURE_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public"));
     let diffs = public.join("diffs");
     let trees = public.join("trees");
     let texts = public.join("texts");

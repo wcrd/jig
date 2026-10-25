@@ -13,6 +13,8 @@ try {
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
   clearScreen: false,
+  // The benchmark builds with its own fixture.
+  publicDir: process.env.JIG_PUBLIC_DIR || "public",
   server: {
     port: 1420,
     strictPort: true,
