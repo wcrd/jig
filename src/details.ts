@@ -14,7 +14,7 @@ import {
   splitLines,
 } from "./diffview";
 import { buildTree, folderPaths, renderTree, type TreeNode, type TreeRow } from "./filetree";
-import type { SearchTarget } from "./search";
+import type { SearchTarget } from "./search.svelte";
 import { type LineSet, VirtualLines } from "./virtual";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { agentBadge, avatarHtml } from "./agents";

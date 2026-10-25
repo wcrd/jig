@@ -7,11 +7,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
 import { isTauri, storage } from "./api";
-import { escapeHtml } from "./format";
+import Settings from "./components/Settings.svelte";
+import { openDialog } from "./dialog";
 
-type Theme = "system" | "light" | "dark";
+export type Theme = "system" | "light" | "dark";
 
-const THEMES: [Theme, string][] = [
+export const THEMES: [Theme, string][] = [
   ["system", "System"],
   ["light", "Light"],
   ["dark", "Dark"],
@@ -19,7 +20,7 @@ const THEMES: [Theme, string][] = [
 
 const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
 
-function savedTheme(): Theme {
+export function savedTheme(): Theme {
   const theme = storage("theme");
   return theme === "light" || theme === "dark" ? theme : "system";
 }
@@ -42,7 +43,7 @@ const followSystem = () => {
 systemDark.addEventListener("change", followSystem);
 window.addEventListener("focus", followSystem);
 
-interface Palette {
+export interface Palette {
   id: string;
   name: string;
   description: string;
@@ -53,7 +54,7 @@ interface Palette {
 
 const LANES = 10;
 
-const PALETTES: Palette[] = [
+export const PALETTES: Palette[] = [
   {
     id: "default",
     name: "Default",
@@ -77,7 +78,7 @@ const PALETTES: Palette[] = [
   },
 ];
 
-function palette(id: string | null): Palette {
+export function palette(id: string | null): Palette {
   return PALETTES.find((p) => p.id === id) ?? PALETTES[0];
 }
 
@@ -101,7 +102,7 @@ export function applyPalette(id?: string) {
 
 export type GraphDate = "changed" | "created";
 
-const GRAPH_DATES: [GraphDate, string][] = [
+export const GRAPH_DATES: [GraphDate, string][] = [
   ["changed", "Last changed"],
   ["created", "Created"],
 ];
@@ -124,18 +125,22 @@ window.addEventListener("storage", (event) => {
 });
 
 /** Saves the graph's date column choice; open repo views re-render on the event. */
-function setGraphDate(choice: GraphDate) {
+export function setGraphDate(choice: GraphDate) {
   graphDateChoice = choice;
   storage("graphDate", choice === "changed" ? null : choice);
   window.dispatchEvent(new Event("graph-date-change"));
 }
 
-const TOAST_SECONDS = [3, 5, 8, 15];
+export const TOAST_SECONDS = [3, 5, 8, 15];
 const DEFAULT_TOAST_SECONDS = 5;
 
-function toastSeconds(): number {
+export function toastSeconds(): number {
   const seconds = Number(storage("toastSeconds"));
   return TOAST_SECONDS.includes(seconds) ? seconds : DEFAULT_TOAST_SECONDS;
+}
+
+export function setToastSeconds(seconds: number) {
+  storage("toastSeconds", seconds === DEFAULT_TOAST_SECONDS ? null : String(seconds));
 }
 
 /** How long toasts that close by themselves stay, in milliseconds. */
@@ -143,81 +148,11 @@ export function toastTime(): number {
   return toastSeconds() * 1000;
 }
 
-function swatches(colors: string[], cls: string): string {
-  return `<span class="swatches ${cls}">${colors.map((c) => `<span style="background:${c}"></span>`).join("")}</span>`;
-}
+let open = false;
 
-/** Set by vite.config.ts from tauri.conf.json and git. */
-declare const __APP_VERSION__: string;
-declare const __APP_COMMIT__: string;
-
-let open: HTMLDialogElement | null = null;
-
-export function showSettings() {
+export async function showSettings() {
   if (open) return;
-  const current = palette(storage("palette")).id;
-  const theme = savedTheme();
-  const dialog = document.createElement("dialog");
-  open = dialog;
-  dialog.className = "prompt settings";
-  dialog.innerHTML =
-    `<div class="prompt-title">Settings</div>` +
-    `<div class="list-section">Theme</div>` +
-    `<div class="theme-options">` +
-    THEMES.map(([id, name]) => `<button data-theme-choice="${id}"${id === theme ? ` class="on"` : ""}>${name}</button>`).join("") +
-    `</div>` +
-    `<div class="list-section">Graph dates</div>` +
-    `<div class="theme-options graph-date-options">` +
-    GRAPH_DATES.map(([id, name]) => `<button data-graph-date="${id}"${id === graphDateChoice ? ` class="on"` : ""}>${name}</button>`).join("") +
-    `</div>` +
-    `<div class="list-section">Toasts stay for</div>` +
-    `<div class="theme-options toast-time-options">` +
-    TOAST_SECONDS.map((s) => `<button data-toast-seconds="${s}"${s === toastSeconds() ? ` class="on"` : ""}>${s} s</button>`).join("") +
-    `</div>` +
-    `<div class="list-section">Graph colours</div>` +
-    `<div class="palette-options">` +
-    PALETTES.map(
-      (p) =>
-        `<label class="palette-option"><input type="radio" name="palette" value="${p.id}"${p.id === current ? " checked" : ""}>` +
-        `<span class="palette-text"><span class="palette-name">${escapeHtml(p.name)}</span>` +
-        `<span class="palette-description">${escapeHtml(p.description)}</span></span>` +
-        swatches(p.light, "light") +
-        swatches(p.dark, "dark") +
-        `</label>`,
-    ).join("") +
-    `</div><div class="prompt-buttons"><span class="settings-version">Jig ${escapeHtml(__APP_VERSION__)}${__APP_COMMIT__ ? ` (${escapeHtml(__APP_COMMIT__)})` : ""}</span>` +
-    `<button class="primary" autofocus>Done</button></div>`;
-  document.body.appendChild(dialog);
-  dialog.addEventListener("change", (event) => {
-    const input = event.target as HTMLInputElement;
-    if (input.name === "palette") applyPalette(input.value);
-  });
-  dialog.addEventListener("click", (event) => {
-    const toastButton = (event.target as HTMLElement).closest<HTMLElement>("[data-toast-seconds]");
-    if (toastButton) {
-      const seconds = Number(toastButton.dataset.toastSeconds);
-      storage("toastSeconds", seconds === DEFAULT_TOAST_SECONDS ? null : String(seconds));
-      for (const b of dialog.querySelectorAll(".toast-time-options button")) b.classList.toggle("on", b === toastButton);
-      return;
-    }
-    const dateButton = (event.target as HTMLElement).closest<HTMLElement>("[data-graph-date]");
-    if (dateButton) {
-      setGraphDate(dateButton.dataset.graphDate as GraphDate);
-      for (const b of dialog.querySelectorAll(".graph-date-options button")) b.classList.toggle("on", b === dateButton);
-      return;
-    }
-    const button = (event.target as HTMLElement).closest<HTMLElement>("[data-theme-choice]");
-    if (!button) return;
-    applyTheme(button.dataset.themeChoice as Theme);
-    for (const b of dialog.querySelectorAll(".theme-options button")) b.classList.toggle("on", b === button);
-  });
-  dialog.querySelector(".prompt-buttons button")!.addEventListener("click", () => dialog.close());
-  dialog.addEventListener("close", () => {
-    dialog.remove();
-    open = null;
-  });
-  dialog.addEventListener("click", (event) => {
-    if (event.target === dialog) dialog.close();
-  });
-  dialog.showModal();
+  open = true;
+  await openDialog(Settings, {});
+  open = false;
 }

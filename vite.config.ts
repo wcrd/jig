@@ -1,5 +1,6 @@
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
+import { svelte } from "@sveltejs/vite-plugin-svelte";
 import { defineConfig } from "vite";
 
 // The app's version lives in tauri.conf.json, which also stamps the bundle.
@@ -12,6 +13,7 @@ try {
 
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
+  plugins: [svelte()],
   clearScreen: false,
   // The benchmark builds with its own fixture.
   publicDir: process.env.JIG_PUBLIC_DIR || "public",

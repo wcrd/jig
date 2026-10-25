@@ -7,7 +7,7 @@ import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { OpLogPanel } from "./oplog";
 import { Relations } from "./relations";
-import { SearchBar, type SearchTarget } from "./search";
+import { SearchBar, type SearchTarget } from "./search.svelte";
 import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
 import { Sidebar, type SidebarItem } from "./sidebar";
