@@ -4,13 +4,11 @@
 import { LogicalPosition } from "@tauri-apps/api/dpi";
 import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
 import { ask } from "@tauri-apps/plugin-dialog";
-import { mount } from "svelte";
 
 import { isTauri } from "./api";
 import EditText from "./components/EditText.svelte";
 import Help from "./components/Help.svelte";
 import Prompt from "./components/Prompt.svelte";
-import Toasts from "./components/Toasts.svelte";
 import { openDialog } from "./dialog";
 import { toastTime } from "./settings";
 import { addToast, raiseToast, removeToast, toasts } from "./toasts.svelte";
@@ -66,8 +64,6 @@ export function prompt(
 ): Promise<string | null> {
   return openDialog(Prompt, { title, label, initial, placeholder, history });
 }
-
-mount(Toasts, { target: document.body });
 
 /** Closes every toast but those for commands still running; returns whether there were any. */
 export function dismissToasts(): boolean {

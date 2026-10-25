@@ -3,9 +3,6 @@
 // and everything else. The graph's rows are drawn here, only those in view.
 
 import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
-import { flushSync, mount } from "svelte";
-
-import RepoView from "./components/RepoView.svelte";
 import type Resolve from "./components/Resolve.svelte";
 import type OpLog from "./components/OpLog.svelte";
 import { DetailsPanel } from "./details.svelte";
@@ -86,10 +83,10 @@ export const MODE_LABELS: Record<RebaseMode, string> = {
 export const PLACEMENT_LABELS: Record<Placement, string> = { onto: "onto", after: "after", before: "before" };
 
 export class Repo {
-  readonly root: HTMLElement;
+  /** The view's element, once RepoView has drawn it. */
+  root!: HTMLElement;
   /** Shown in the tab; the folder name until the log loads. */
   name = $state("");
-  onChange: () => void = () => {};
   /** Opens another repo or workspace in a tab. */
   onOpen: (path: string) => void = () => {};
 
@@ -111,6 +108,10 @@ export class Repo {
   modeVersion = $state(0);
   /** The kind of the last operation shown in the modebar. */
   lastModeKind = $state("");
+  /** An operation is in progress (the modebar is up). */
+  rebasing = $state(false);
+  /** A row is being dragged onto another. */
+  dragging = $state(false);
   private graph: Graph | null = null;
   private selected = -1;
   /** A change to select on the first load, for a tab moved from another window. */
@@ -141,9 +142,9 @@ export class Repo {
   // Diffs are cached by commit ID: a commit's content never changes.
   private diffCache = new Map<string, CommitDiff>();
   private detailsTimer = 0;
-  private fullDiff = false;
+  fullDiff = $state(false);
   /** ←: the details panel shrinks to its tab bar, leaving the graph the window. */
-  private detailsMin = false;
+  detailsMin = $state(false);
   private detailsRequest = 0;
   readonly details: DetailsPanel;
   /** Set when RepoView draws them. */
@@ -152,8 +153,8 @@ export class Repo {
   /** The change being resolved; its commit changes with every resolution. */
   private resolving: LogRow | null = null;
 
-  private scroller: HTMLElement;
-  private spacer: HTMLElement;
+  private scroller!: HTMLElement;
+  private spacer!: HTMLElement;
 
   constructor(readonly path: string) {
     this.name = path.split("/").filter(Boolean).pop() ?? path;
@@ -180,18 +181,18 @@ export class Repo {
       { tab: storage("detailsTab"), changesView: storage("changesView") },
     );
 
-    this.root = document.createElement("div");
-    this.root.className = "repo-view";
-    mount(RepoView, { target: this.root, props: { repo: this } });
-    flushSync();
-    this.scroller = this.ref("scroller");
-    this.spacer = this.ref("spacer");
-    this.details.attach(this.ref("diff-view"), this.ref("file-list"));
-
     window.addEventListener("graph-date-change", () => {
       this.clearRows();
       this.render();
     });
+  }
+
+  /** Takes the element RepoView drew, and starts handling the graph's events. */
+  attach(root: HTMLElement) {
+    this.root = root;
+    this.scroller = this.ref("scroller");
+    this.spacer = this.ref("spacer");
+    this.details.attach(this.ref("diff-view"), this.ref("file-list"));
     this.bindEvents();
     this.applySavedSizes();
   }
@@ -213,7 +214,6 @@ export class Repo {
 
   private setOpLogVisible(visible: boolean) {
     this.oplogVisible = visible;
-    this.root.classList.toggle("showing-oplog", visible);
     if (!visible) this.render();
   }
 
@@ -367,7 +367,6 @@ export class Repo {
       this.updateStatus();
       if (this.oplogVisible) this.oplog?.refresh();
       this.scheduleDetails(keepPosition);
-      this.onChange();
     } catch (err) {
       this.error = String(err);
       this.status = "";
@@ -673,13 +672,11 @@ export class Repo {
     this.setDetailsMin(false);
     this.fullDiff = !this.fullDiff;
     if (this.fullDiff) this.details.setTab("changes");
-    this.root.classList.toggle("full-diff", this.fullDiff);
   }
 
   private setDetailsMin(min: boolean) {
     if (this.detailsMin === min) return;
     this.detailsMin = min;
-    this.root.classList.toggle("details-min", min);
     this.render();
   }
 
@@ -937,7 +934,7 @@ export class Repo {
 
   private updateModebar() {
     const p = this.pending;
-    this.root.classList.toggle("rebasing", !!p);
+    this.rebasing = !!p;
     if (p) this.lastModeKind = p.kind;
     this.modeVersion++;
   }
@@ -1004,7 +1001,6 @@ export class Repo {
     if (!row) return;
     this.hideOpLog();
     this.resolving = row;
-    this.root.classList.add("showing-resolve");
     this.resolveVisible = true;
     this.resolver?.open(row, conflicts, filePath);
   }
@@ -1014,7 +1010,6 @@ export class Repo {
     this.resolving = null;
     this.resolveVisible = false;
     this.resolver?.hide();
-    this.root.classList.remove("showing-resolve");
     if (row) this.selectCommit(this.log?.rows.find((r) => r.changeId === row.changeId)?.commitId ?? null, row.changeId.slice(0, 8));
     this.render();
   }
@@ -1125,7 +1120,7 @@ export class Repo {
       if (!dragging) {
         dragging = true;
         this.startRebase(this.sourcesAt(index), e.shiftKey ? "source" : "revision", index);
-        this.root.classList.add("dragging");
+        this.dragging = true;
       }
       const p = this.pending;
       const over = (document.elementFromPoint(e.clientX, e.clientY) as HTMLElement | null)?.closest<HTMLElement>(".row");
@@ -1137,7 +1132,7 @@ export class Repo {
     };
     const up = () => {
       window.removeEventListener("mousemove", move);
-      this.root.classList.remove("dragging");
+      this.dragging = false;
       // Dropping leaves the rebase ready to confirm, with the options visible.
       const p = this.pending;
       if (dragging && p?.kind === "rebase" && p.sources.includes(p.target)) this.cancelPending();
