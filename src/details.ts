@@ -18,7 +18,8 @@ import type { SearchTarget } from "./search";
 import { type LineSet, VirtualLines } from "./virtual";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { agentBadge, avatarHtml } from "./agents";
-import { escapeHtml, formatFullDate, reflowMessage } from "./format";
+import { formatFullDate, reflowMessage } from "./format";
+import { type Html, html, raw, setHtml } from "./html";
 import type { CommitDiff, CompareDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 
 export type DetailsTab = "commit" | "changes" | "tree";
@@ -49,10 +50,10 @@ const STATUS_LETTER: Record<FileStatus, string> = {
   copied: "C",
 };
 
-const LIST_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
-const TREE_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h5M6 8h7M6 12.5h7M4 4v8.5h2M4 8h2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const COLLAPSE_ICON = `<svg viewBox="0 0 16 16" width="13" height="13"><path d="M4.5 6.5L8 3l3.5 3.5M4.5 9.5L8 13l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-const FILE_ICON = `<svg class="icon" viewBox="0 0 16 16" width="13" height="13"><path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
+const LIST_ICON = html`<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 4h10M3 8h10M3 12h10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`;
+const TREE_ICON = html`<svg viewBox="0 0 16 16" width="13" height="13"><path d="M3 3.5h5M6 8h7M6 12.5h7M4 4v8.5h2M4 8h2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const COLLAPSE_ICON = html`<svg viewBox="0 0 16 16" width="13" height="13"><path d="M4.5 6.5L8 3l3.5 3.5M4.5 9.5L8 13l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const FILE_ICON = html`<svg class="icon" viewBox="0 0 16 16" width="13" height="13"><path d="M4 1.5h5.5L13 5v9.5H4z M9.5 1.5V5H13" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/></svg>`;
 
 export interface DetailsSource {
   fileText(commitId: string, path: string): Promise<FileText>;
@@ -83,8 +84,17 @@ export interface DetailsElements {
   body: HTMLElement;
 }
 
-function statusBadge(status: FileStatus, conflict = false): string {
-  return `<span class="status ${status}${conflict ? " conflict" : ""}">${conflict ? "!" : STATUS_LETTER[status]}</span>`;
+function statusBadge(status: FileStatus, conflict = false): Html {
+  return html`<span class="status ${status}${conflict ? " conflict" : ""}">${conflict ? "!" : STATUS_LETTER[status]}</span>`;
+}
+
+/** The first 8 characters of a change ID, with its unique prefix in bold. */
+function shortChangeId(row: LogRow): Html {
+  return html`<span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen, 8)}</span>`;
+}
+
+function summaryHtml(summary: string): Html {
+  return summary ? html`${summary}` : html`<span class="placeholder">(no description set)</span>`;
 }
 
 export class DetailsPanel {
@@ -239,11 +249,11 @@ export class DetailsPanel {
     this.cancelEdit();
     this.row = null;
     this.diff = null;
-    this.el.info.innerHTML = message ? `<div class="placeholder-text">${escapeHtml(message)}</div>` : "";
+    setHtml(this.el.info, message && html`<div class="placeholder-text">${message}</div>`);
     this.updateContext();
-    this.el.fileHeader.innerHTML = "";
-    this.el.fileList.innerHTML = "";
-    this.el.view.innerHTML = "";
+    this.el.fileHeader.replaceChildren();
+    this.el.fileList.replaceChildren();
+    this.el.view.replaceChildren();
   }
 
   /** Shows the row's header straight away, before its diff has loaded. */
@@ -256,7 +266,7 @@ export class DetailsPanel {
     this.renderInfo();
     this.updateContext();
     this.renderLeft();
-    if (this.tab !== "tree") this.el.view.innerHTML = "";
+    if (this.tab !== "tree") this.el.view.replaceChildren();
   }
 
   /** `refresh`: the repo reloaded, so keep scroll positions where the content allows. */
@@ -292,10 +302,10 @@ export class DetailsPanel {
     this.compareFrom = from;
     this.row = to;
     this.diff = null;
-    this.el.info.innerHTML = this.compareInfoHtml(from, to);
+    setHtml(this.el.info, this.compareInfoHtml(from, to));
     this.updateContext();
     this.renderLeft();
-    if (this.tab !== "tree") this.el.view.innerHTML = "";
+    if (this.tab !== "tree") this.el.view.replaceChildren();
   }
 
   /**
@@ -321,7 +331,7 @@ export class DetailsPanel {
       conflicts: [],
     };
     this.changesTree = buildTree(compare.files.map((f) => f.path));
-    this.el.info.innerHTML = this.compareInfoHtml(from, to);
+    setHtml(this.el.info, this.compareInfoHtml(from, to));
     this.updateContext();
     const found = previousPath ? compare.files.findIndex((f) => f.path === previousPath) : -1;
     this.fileIndex = found >= 0 ? found : 0;
@@ -336,15 +346,11 @@ export class DetailsPanel {
     this.renderRight(keepScroll);
   }
 
-  private compareInfoHtml(from: LogRow, to: LogRow): string {
+  private compareInfoHtml(from: LogRow, to: LogRow): Html {
     const side = (row: LogRow, label: string) =>
-      `<div class="cmp-side"><span class="cmp-label">${label}</span><span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen, 8)}</span>` +
-      `<span class="cmp-summary">${row.summary ? escapeHtml(row.summary) : '<span class="placeholder">(no description set)</span>'}</span></div>`;
-    return (
-      `<div class="ci-summary">Comparing two commits</div>` +
-      `<div class="cmp">${side(from, "From")}${side(to, "To")}</div>` +
-      `<div class="muted cmp-hint">⌘-click another commit to change the comparison · Esc to stop comparing</div>`
-    );
+      html`<div class="cmp-side"><span class="cmp-label">${label}</span>${shortChangeId(row)}<span class="cmp-summary">${summaryHtml(row.summary)}</span></div>`;
+    const hint = html`<div class="muted cmp-hint">⌘-click another commit to change the comparison · Esc to stop comparing</div>`;
+    return html`<div class="ci-summary">Comparing two commits</div><div class="cmp">${side(from, "From")}${side(to, "To")}</div>${hint}`;
   }
 
   /** Shows what the panel is about after the tabs: the commit, or both ends of a comparison. */
@@ -355,21 +361,19 @@ export class DetailsPanel {
       context.className = "tab-context";
       this.el.tabs.appendChild(context);
     }
-    const id = (row: LogRow) =>
-      `<span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen, 8)}</span>`;
-    const summary = (row: LogRow) =>
-      row.summary ? escapeHtml(row.summary) : `<span class="placeholder">(no description set)</span>`;
     const from = this.compareFrom;
     const to = this.row;
     if (!to) {
-      context.innerHTML = "";
+      context.replaceChildren();
     } else if (from) {
-      context.innerHTML =
-        `<span class="ctx-compare" title="${escapeHtml(`${from.summary}  →  ${to.summary}`)}">${id(from)} <span class="ctx-summary">${summary(from)}</span>` +
-        `<span class="ctx-arrow">→</span>${id(to)} <span class="ctx-summary">${summary(to)}</span></span>` +
-        `<button class="header-button" data-action="swap" title="Swap direction">⇄</button>`;
+      const end = (row: LogRow) => html`${shortChangeId(row)} <span class="ctx-summary">${summaryHtml(row.summary)}</span>`;
+      setHtml(
+        context,
+        html`<span class="ctx-compare" title="${from.summary}  →  ${to.summary}">${end(from)}<span class="ctx-arrow">→</span>${end(to)}</span>`,
+        html`<button class="header-button" data-action="swap" title="Swap direction">⇄</button>`,
+      );
     } else {
-      context.innerHTML = `${id(to)} <span class="ctx-summary" title="${escapeHtml(to.summary)}">${summary(to)}</span>`;
+      setHtml(context, html`${shortChangeId(to)} <span class="ctx-summary" title="${to.summary}">${summaryHtml(to.summary)}</span>`);
     }
   }
 
@@ -515,7 +519,7 @@ export class DetailsPanel {
   }
 
   showError(message: string) {
-    this.el.view.innerHTML = `<div class="placeholder-text error-text">${escapeHtml(message)}</div>`;
+    setHtml(this.el.view, html`<div class="placeholder-text error-text">${message}</div>`);
   }
 
   /** Moves the selection through files and folders, for keyboard navigation. */
@@ -612,24 +616,26 @@ export class DetailsPanel {
   private renderChanges() {
     const diff = this.diff;
     if (!diff) {
-      this.el.fileHeader.innerHTML = this.row ? `<span>Changes</span>` : "";
-      this.el.fileList.innerHTML = "";
+      setHtml(this.el.fileHeader, this.row && html`<span>Changes</span>`);
+      this.el.fileList.replaceChildren();
       this.fileRows = [];
       return;
     }
     const files = diff.files;
     const additions = files.reduce((n, f) => n + f.additions, 0);
     const deletions = files.reduce((n, f) => n + f.deletions, 0);
-    const toggle = (view: ChangesView, icon: string, title: string) =>
-      `<button class="header-button${this.changesView === view ? " active" : ""}" data-action="${view}" title="${title}">${icon}</button>`;
-    this.el.fileHeader.innerHTML =
-      `<span>${files.length} ${files.length === 1 ? "file" : "files"} changed</span>` +
-      (files.length ? `<span class="stats"><span class="add">+${additions}</span> <span class="del">−${deletions}</span></span>` : "") +
-      `<span class="header-buttons">${toggle("list", LIST_ICON, "Show as list")}${toggle("tree", TREE_ICON, "Show as tree")}</span>`;
+    const toggle = (view: ChangesView, icon: Html, title: string) =>
+      html`<button class="header-button${this.changesView === view ? " active" : ""}" data-action="${view}" title="${title}">${icon}</button>`;
+    setHtml(
+      this.el.fileHeader,
+      html`<span>${files.length} ${files.length === 1 ? "file" : "files"} changed</span>`,
+      files.length > 0 && html`<span class="stats"><span class="add">+${additions}</span> <span class="del">−${deletions}</span></span>`,
+      html`<span class="header-buttons">${toggle("list", LIST_ICON, "Show as list")}${toggle("tree", TREE_ICON, "Show as tree")}</span>`,
+    );
 
-    const conflicts = this.compareFrom ? "" : this.conflictsHtml(diff.conflicts);
+    const conflicts = this.compareFrom ? null : this.conflictsHtml(diff.conflicts);
     if (files.length === 0 && conflicts) {
-      this.el.fileList.innerHTML = conflicts + `<div class="placeholder-text">No changes beyond its parents</div>`;
+      setHtml(this.el.fileList, conflicts, html`<div class="placeholder-text">No changes beyond its parents</div>`);
       this.fileRows = [];
       return;
     }
@@ -641,76 +647,72 @@ export class DetailsPanel {
         : diff.parents.length > 1
           ? "Clean merge: no changes beyond its parents"
           : "No changes";
-      this.el.fileList.innerHTML = `<div class="placeholder-text">${message}</div>`;
+      setHtml(this.el.fileList, html`<div class="placeholder-text">${message}</div>`);
       this.fileRows = [];
       return;
     }
 
+    const section = conflicts && html`<div class="list-section">Changes</div>`;
     if (this.changesView === "tree") {
-      const { html, rows } = renderTree(this.changesTree!, {
+      const { html: tree, rows } = renderTree(this.changesTree!, {
         collapsed: this.changesCollapsed,
         selected: this.fileIndex,
         selectedFolder: this.focusedFolder,
-        fileHtml: (i, node) => this.changedFileHtml(files[i], node.name, ""),
+        fileHtml: (i, node) => this.changedFileHtml(files[i], node.name, "").markup,
       });
-      this.el.fileList.innerHTML = conflicts + (conflicts ? `<div class="list-section">Changes</div>` : "") + html;
+      setHtml(this.el.fileList, conflicts, section, raw(tree));
       this.fileRows = rows;
     } else {
-      this.el.fileList.innerHTML = conflicts + (conflicts ? `<div class="list-section">Changes</div>` : "") + files
-        .map((file, i) => {
-          const slash = file.path.lastIndexOf("/");
-          const name = file.path.slice(slash + 1);
-          const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
-          return `<div class="tree-row file${i === this.fileIndex ? " selected" : ""}" data-index="${i}">${this.changedFileHtml(file, name, dir)}</div>`;
-        })
-        .join("");
+      const items = files.map((file, i) => {
+        const slash = file.path.lastIndexOf("/");
+        const name = file.path.slice(slash + 1);
+        const dir = slash >= 0 ? file.path.slice(0, slash + 1) : "";
+        return html`<div class="tree-row file${i === this.fileIndex ? " selected" : ""}" data-index="${i}">${this.changedFileHtml(file, name, dir)}</div>`;
+      });
+      setHtml(this.el.fileList, conflicts, section, items);
       this.fileRows = files.map((_, i) => ({ item: i }));
     }
   }
 
-  private conflictsHtml(paths: string[]): string {
-    if (paths.length === 0) return "";
-    return (
-      `<div class="list-section conflicts">Unresolved conflicts</div>` +
-      paths
-        .map((path) => {
-          const slash = path.lastIndexOf("/");
-          const selected = path === this.conflictPath ? " selected" : "";
-          return `<div class="tree-row file${selected}" data-conflict="${escapeHtml(path)}" title="${escapeHtml(path)}">
-            <span class="status modified conflict">!</span><span class="path"><span class="name">${escapeHtml(path.slice(slash + 1))}</span>${slash >= 0 ? `<span class="dir">${escapeHtml(path.slice(0, slash + 1))}</span>` : ""}</span></div>`;
-        })
-        .join("")
-    );
+  private conflictsHtml(paths: string[]): Html | null {
+    if (paths.length === 0) return null;
+    const items = paths.map((path) => {
+      const slash = path.lastIndexOf("/");
+      const selected = path === this.conflictPath ? " selected" : "";
+      return html`<div class="tree-row file${selected}" data-conflict="${path}" title="${path}">
+            <span class="status modified conflict">!</span><span class="path"><span class="name">${path.slice(slash + 1)}</span>${slash >= 0 && html`<span class="dir">${path.slice(0, slash + 1)}</span>`}</span></div>`;
+    });
+    return html`<div class="list-section conflicts">Unresolved conflicts</div>${items}`;
   }
 
-  private changedFileHtml(file: FileDiff, name: string, dir: string): string {
+  private changedFileHtml(file: FileDiff, name: string, dir: string): Html {
     const stats = file.binary
-      ? `<span class="muted">bin</span>`
+      ? html`<span class="muted">bin</span>`
       : file.omitted
-        ? ""
-        : `<span class="add">+${file.additions}</span> <span class="del">−${file.deletions}</span>`;
+        ? null
+        : html`<span class="add">+${file.additions}</span> <span class="del">−${file.deletions}</span>`;
     const title = file.sourcePath ? `${file.sourcePath} → ${file.path}` : file.path;
     const index = this.diff!.files.indexOf(file);
-    const check = this.split
-      ? `<span class="check ${{ none: "", some: "some", all: "on" }[this.fileSplitState(file)]}" data-check="${index}" title="Include in the first commit"></span>`
-      : "";
-    return `${check}${statusBadge(file.status, file.conflict)}<span class="path" title="${escapeHtml(title)}"><span class="name">${escapeHtml(name)}</span>${dir ? `<span class="dir">${escapeHtml(dir)}</span>` : ""}</span><span class="stats">${stats}</span>`;
+    const check =
+      this.split &&
+      html`<span class="check ${{ none: "", some: "some", all: "on" }[this.fileSplitState(file)]}" data-check="${index}" title="Include in the first commit"></span>`;
+    return html`${check}${statusBadge(file.status, file.conflict)}<span class="path" title="${title}"><span class="name">${name}</span>${dir && html`<span class="dir">${dir}</span>`}</span><span class="stats">${stats}</span>`;
   }
 
   private async renderRepoTree() {
     const row = this.row;
-    this.el.fileHeader.innerHTML = `<span>Files</span>`;
+    setHtml(this.el.fileHeader, html`<span>Files</span>`);
     if (!row) {
-      this.el.fileList.innerHTML = "";
+      this.el.fileList.replaceChildren();
       return;
     }
     if (this.treeCommit !== row.commitId) {
-      this.el.fileList.innerHTML = `<div class="placeholder-text">Loading…</div>`;
+      setHtml(this.el.fileList, html`<div class="placeholder-text">Loading…</div>`);
       let entries: TreeEntry[];
       try {
         entries = await this.source.treeFiles(row.commitId);
       } catch (err) {
-        this.el.fileList.innerHTML = `<div class="placeholder-text error-text">${escapeHtml(String(err))}</div>`;
+        setHtml(this.el.fileList, html`<div class="placeholder-text error-text">${String(err)}</div>`);
         return;
       }
       // The selection may have moved on while loading.
@@ -728,20 +730,22 @@ export class DetailsPanel {
 
     const changed = new Map((this.diff?.files ?? []).map((f) => [f.path, f]));
     const collapsed = new Set(folderPaths(this.treeRoot!).filter((p) => !this.isTreeFolderOpen(p)));
-    const { html, rows } = renderTree(this.treeRoot!, {
+    const { html: tree, rows } = renderTree(this.treeRoot!, {
       collapsed,
       selected: this.treeIndex(),
       selectedFolder: this.focusedFolder,
       fileHtml: (i, node) => {
         const file = changed.get(this.treeEntries[i].path);
         const badge = file ? statusBadge(file.status, file.conflict) : FILE_ICON;
-        return `${badge}<span class="path"><span class="name">${escapeHtml(node.name)}</span></span>`;
+        return html`${badge}<span class="path"><span class="name">${node.name}</span></span>`.markup;
       },
     });
-    this.el.fileHeader.innerHTML =
-      `<span>${this.treeEntries.length.toLocaleString()} files</span>` +
-      `<span class="header-buttons"><button class="header-button" data-action="collapse" title="Collapse all folders">${COLLAPSE_ICON}</button></span>`;
-    this.el.fileList.innerHTML = html;
+    setHtml(
+      this.el.fileHeader,
+      html`<span>${this.treeEntries.length.toLocaleString()} files</span>`,
+      html`<span class="header-buttons"><button class="header-button" data-action="collapse" title="Collapse all folders">${COLLAPSE_ICON}</button></span>`,
+    );
+    setHtml(this.el.fileList, raw(tree));
     this.treeRows = rows;
   }
 
@@ -823,7 +827,7 @@ export class DetailsPanel {
   private async renderDiff(resetScroll: boolean) {
     const file = this.diff?.files[this.fileIndex];
     if (!file) {
-      this.el.view.innerHTML = "";
+      this.el.view.replaceChildren();
       return;
     }
     if (file.omitted) {
@@ -845,17 +849,18 @@ export class DetailsPanel {
       }
     }
     const canExpand = !file.binary && !file.omitted && file.status !== "deleted" && file.hunks.length > 0;
-    const fullButton = canExpand
-      ? `<button class="header-button text${expansion.full ? " active" : ""}" data-action="full" title="Show the whole file">Full file</button>`
-      : "";
-    const rename = file.sourcePath ? `<span class="muted">${escapeHtml(file.sourcePath)} → </span>` : "";
+    const fullButton =
+      canExpand &&
+      html`<button class="header-button text${expansion.full ? " active" : ""}" data-action="full" title="Show the whole file">Full file</button>`;
+    const rename = file.sourcePath && html`<span class="muted">${file.sourcePath} → </span>`;
+    const conflict = file.conflict && html`<span class="pill flag conflict"><span class="label">conflict</span></span>`;
     const scrollTop = this.el.view.scrollTop;
     const scrollLeft = this.el.view.scrollLeft;
-    this.el.view.innerHTML =
-      `<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${rename}${escapeHtml(file.path)}</span>` +
-      (file.conflict ? `<span class="pill flag conflict"><span class="label">conflict</span></span>` : "") +
-      `<span class="header-buttons">${fullButton}</span></div>` +
-      `<div class="diff-body"></div>`;
+    setHtml(
+      this.el.view,
+      html`<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${rename}${file.path}</span>${conflict}<span class="header-buttons">${fullButton}</span></div>`,
+      html`<div class="diff-body"></div>`,
+    );
     const state = this.split?.get(file.path);
     const ticked: SplitTicks | null = this.split
       ? {
@@ -873,18 +878,19 @@ export class DetailsPanel {
    * size limit, in which case offer to.
    */
   private async renderOmitted(file: FileDiff, force = false) {
-    const header =
-      `<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${escapeHtml(file.path)}</span></div>`;
+    const header = html`<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${file.path}</span></div>`;
     this.virtual.unmount();
     if (file.tooLarge && !force) {
       const mb = (file.size / 1024 / 1024).toFixed(1);
-      this.el.view.innerHTML =
-        header +
-        `<div class="placeholder-text">This file is ${mb} MB, so it wasn't diffed automatically; large files can take a while.` +
-        `<div><button class="header-button text load-anyway" data-action="force">Show Diff Anyway</button></div></div>`;
+      const button = html`<button class="header-button text load-anyway" data-action="force">Show Diff Anyway</button>`;
+      setHtml(
+        this.el.view,
+        header,
+        html`<div class="placeholder-text">This file is ${mb} MB, so it wasn't diffed automatically; large files can take a while.<div>${button}</div></div>`,
+      );
       return;
     }
-    this.el.view.innerHTML = header + `<div class="placeholder-text">Loading diff…</div>`;
+    setHtml(this.el.view, header, html`<div class="placeholder-text">Loading diff…</div>`);
     const diff = this.diff;
     const index = this.fileIndex;
     try {
@@ -904,12 +910,11 @@ export class DetailsPanel {
   private async renderConflict(path: string) {
     const row = this.row;
     this.virtual.unmount();
-    const header =
-      `<div class="diff-header"><span class="status modified conflict">!</span><span class="diff-path">${escapeHtml(path)}</span>` +
-      `<span class="pill flag conflict"><span class="label">unresolved conflict</span></span>` +
-      (this.compareFrom ? "" : `<span class="header-buttons"><button class="header-button text primary" data-action="resolve-conflict">Resolve…</button></span>`) +
-      `</div>`;
-    this.el.view.innerHTML = header + `<div class="placeholder-text">Loading…</div>`;
+    const resolve =
+      !this.compareFrom &&
+      html`<span class="header-buttons"><button class="header-button text primary" data-action="resolve-conflict">Resolve…</button></span>`;
+    const header = html`<div class="diff-header"><span class="status modified conflict">!</span><span class="diff-path">${path}</span><span class="pill flag conflict"><span class="label">unresolved conflict</span></span>${resolve}</div>`;
+    setHtml(this.el.view, header, html`<div class="placeholder-text">Loading…</div>`);
     let text: FileText;
     try {
       text = await this.text(path);
@@ -918,7 +923,7 @@ export class DetailsPanel {
       return;
     }
     if (this.conflictPath !== path || this.row !== row) return;
-    this.el.view.innerHTML = header + `<div class="diff-body"></div>`;
+    setHtml(this.el.view, header, html`<div class="diff-body"></div>`);
     if (text.text == null) {
       this.showLines({ placeholder: text.binary ? "Binary file conflict" : "Not a regular file" });
       return;
@@ -938,7 +943,7 @@ export class DetailsPanel {
     if (!body) return;
     if ("placeholder" in lines) {
       this.virtual.unmount();
-      body.innerHTML = `<div class="placeholder-text">${escapeHtml(lines.placeholder)}</div>`;
+      setHtml(body, html`<div class="placeholder-text">${lines.placeholder}</div>`);
     } else {
       this.virtual.mount(body, lines);
     }
@@ -992,19 +997,20 @@ export class DetailsPanel {
     const path = this.treePath;
     const row = this.row;
     if (!row || !path) {
-      this.el.view.innerHTML = `<div class="placeholder-text">Select a file to view it</div>`;
+      setHtml(this.el.view, html`<div class="placeholder-text">Select a file to view it</div>`);
       return;
     }
     if (this.treeCommit === row.commitId && this.treeIndex() < 0) {
-      this.el.view.innerHTML = `<div class="placeholder-text">${escapeHtml(path)} doesn't exist in this commit</div>`;
+      setHtml(this.el.view, html`<div class="placeholder-text">${path} doesn't exist in this commit</div>`);
       return;
     }
     const changed = this.diff?.files.find((f) => f.path === path);
-    const header =
-      `<div class="diff-header">${changed ? statusBadge(changed.status, changed.conflict) : FILE_ICON}<span class="diff-path">${escapeHtml(path)}</span>` +
-      `<span class="header-buttons">${changed ? `<button class="header-button text" data-action="view-diff" title="Show this file's changes in this commit">View changes</button>` : ""}</span></div>`;
+    const viewChanges =
+      changed &&
+      html`<button class="header-button text" data-action="view-diff" title="Show this file's changes in this commit">View changes</button>`;
+    const header = html`<div class="diff-header">${changed ? statusBadge(changed.status, changed.conflict) : FILE_ICON}<span class="diff-path">${path}</span><span class="header-buttons">${viewChanges}</span></div>`;
     // On a refresh the old file stays up while the new one loads.
-    if (!keepScroll) this.el.view.innerHTML = header + `<div class="placeholder-text">Loading…</div>`;
+    if (!keepScroll) setHtml(this.el.view, header, html`<div class="placeholder-text">Loading…</div>`);
     let text: FileText;
     try {
       text = await this.text(path);
@@ -1014,7 +1020,7 @@ export class DetailsPanel {
     }
     if (this.treePath !== path || this.row !== row || this.tab !== "tree") return;
     const scrollTop = this.el.view.scrollTop;
-    this.el.view.innerHTML = header + `<div class="diff-body"></div>`;
+    setHtml(this.el.view, header, html`<div class="diff-body"></div>`);
     this.showLines(
       text.text != null
         ? fileLines(splitLines(text.text), highlightCached(text, text.text, languageFor(path)))
@@ -1041,8 +1047,11 @@ export class DetailsPanel {
     this.cancelEdit();
     const el = document.createElement("div");
     el.className = "ci-editor";
-    el.innerHTML = `<textarea spellcheck="true" autocapitalize="off" autocorrect="off" rows="8"></textarea>
-      <div class="prompt-buttons"><span class="muted prompt-hint">⌥↩ or ⌘↩ to save · Esc to cancel</span><button data-edit="cancel">Cancel</button><button data-edit="save" class="primary">Save</button></div>`;
+    setHtml(
+      el,
+      html`<textarea spellcheck="true" autocapitalize="off" autocorrect="off" rows="8"></textarea>
+      <div class="prompt-buttons"><span class="muted prompt-hint">⌥↩ or ⌘↩ to save · Esc to cancel</span><button data-edit="cancel">Cancel</button><button data-edit="save" class="primary">Save</button></div>`,
+    );
     const textarea = el.querySelector("textarea")!;
     textarea.value = initial;
     // Save with ⌘↩, or jjui's ⌥↩ / ⌃S; ⌃X clears, as in jjui.
@@ -1088,52 +1097,50 @@ export class DetailsPanel {
 
   /** The commit header, with the message editor in place of the message while editing. */
   private renderInfo() {
-    this.el.info.innerHTML = this.infoHtml(this.row!, this.diff);
+    setHtml(this.el.info, this.infoHtml(this.row!, this.diff));
     if (this.editor) this.el.info.querySelector(".ci-message")?.replaceWith(this.editor.el);
   }
 
-  private infoHtml(row: LogRow, diff: CommitDiff | null): string {
+  private infoHtml(row: LogRow, diff: CommitDiff | null): Html {
     const description = diff?.description ?? row.summary;
     const [summary, ...rest] = description.split("\n");
     const body = rest.join("\n").trim();
     const author = diff?.author ?? { name: row.authorName, email: row.authorEmail, timestamp: row.authorTimestamp ?? row.timestamp };
     const committer = diff?.committer;
 
-    let html = `<div class="ci-message">`;
-    html += summary
-      ? `<div class="ci-summary">${escapeHtml(summary)}</div>`
-      : `<div class="ci-summary placeholder">(no description set)</div>`;
-    if (body) html += `<div class="ci-body">${escapeHtml(reflowMessage(body))}</div>`;
-    html += `</div>`;
+    const summaryLine = summary
+      ? html`<div class="ci-summary">${summary}</div>`
+      : html`<div class="ci-summary placeholder">(no description set)</div>`;
+    const message = html`<div class="ci-message">${summaryLine}${body && html`<div class="ci-body">${reflowMessage(body)}</div>`}</div>`;
 
-    html += `<div class="ci-person">${avatarHtml(author.name, author.email, "large")}
-      <div><div><b>${escapeHtml(author.name)}</b>${agentBadge(author.name, author.email)} <span class="muted">&lt;${escapeHtml(author.email)}&gt;</span></div>
-      </div></div>`;
-    for (const co of row.coauthors) {
-      html += `<div class="ci-person coauthor">${avatarHtml(co.name, co.email, "medium")}
-        <div><b>${escapeHtml(co.name)}</b>${agentBadge(co.name, co.email)}${co.email ? ` <span class="muted">&lt;${escapeHtml(co.email)}&gt;</span>` : ""}
-        <span class="muted">· co-author</span></div></div>`;
-    }
+    const people = [
+      html`<div class="ci-person">${raw(avatarHtml(author.name, author.email, "large"))}
+      <div><div><b>${author.name}</b>${raw(agentBadge(author.name, author.email))} <span class="muted">&lt;${author.email}&gt;</span></div>
+      </div></div>`,
+      ...row.coauthors.map(
+        (co) => html`<div class="ci-person coauthor">${raw(avatarHtml(co.name, co.email, "medium"))}
+        <div><b>${co.name}</b>${raw(agentBadge(co.name, co.email))}${co.email && html` <span class="muted">&lt;${co.email}&gt;</span>`}
+        <span class="muted">· co-author</span></div></div>`,
+      ),
+    ];
 
-    html += `<dl class="ci-meta">`;
+    const meta: Html[] = [];
     if (committer && (committer.email !== author.email || committer.name !== author.name)) {
-      html += `<dt>Committer</dt><dd>${escapeHtml(committer.name)} <span class="muted">&lt;${escapeHtml(committer.email)}&gt;</span></dd>`;
+      meta.push(html`<dt>Committer</dt><dd>${committer.name} <span class="muted">&lt;${committer.email}&gt;</span></dd>`);
     }
     // Author time is kept through rewrites, so it's roughly when the change began.
-    html += `<dt>Created</dt><dd>${escapeHtml(formatFullDate(author.timestamp))}</dd>`;
-    html += `<dt>Last changed</dt><dd>${escapeHtml(formatFullDate(committer?.timestamp ?? row.timestamp))}</dd>`;
-    html += `<dt>Change</dt><dd class="mono"><span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen)}</span></dd>`;
-    html += `<dt>Commit</dt><dd class="mono"><span class="id commit-id"><b>${row.commitId.slice(0, row.commitPrefixLen)}</b>${row.commitId.slice(row.commitPrefixLen)}</span></dd>`;
+    meta.push(html`<dt>Created</dt><dd>${formatFullDate(author.timestamp)}</dd>`);
+    meta.push(html`<dt>Last changed</dt><dd>${formatFullDate(committer?.timestamp ?? row.timestamp)}</dd>`);
+    meta.push(html`<dt>Change</dt><dd class="mono"><span class="id change-id"><b>${row.changeId.slice(0, row.changePrefixLen)}</b>${row.changeId.slice(row.changePrefixLen)}</span></dd>`);
+    meta.push(html`<dt>Commit</dt><dd class="mono"><span class="id commit-id"><b>${row.commitId.slice(0, row.commitPrefixLen)}</b>${row.commitId.slice(row.commitPrefixLen)}</span></dd>`);
     if (diff && diff.parents.length > 0) {
-      html += `<dt>${diff.parents.length > 1 ? "Parents" : "Parent"}</dt><dd>`;
-      for (const parent of diff.parents) {
-        html += `<div class="ci-parent" data-change="${parent.changeId}" title="Select ${parent.changeId.slice(0, 8)}">
+      const parents = diff.parents.map(
+        (parent) => html`<div class="ci-parent" data-change="${parent.changeId}" title="Select ${parent.changeId.slice(0, 8)}">
           <span class="id change-id">${parent.changeId.slice(0, 8)}</span>
-          <span class="ci-parent-summary">${parent.summary ? escapeHtml(parent.summary) : '<span class="placeholder">(no description set)</span>'}</span></div>`;
-      }
-      html += `</dd>`;
+          <span class="ci-parent-summary">${summaryHtml(parent.summary)}</span></div>`,
+      );
+      meta.push(html`<dt>${diff.parents.length > 1 ? "Parents" : "Parent"}</dt><dd>${parents}</dd>`);
     }
-    html += `</dl>`;
-    return html;
+    return html`${message}${people}<dl class="ci-meta">${meta}</dl>`;
   }
 }

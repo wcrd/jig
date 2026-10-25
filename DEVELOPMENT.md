@@ -7,7 +7,7 @@
 
 ## Layout
 
-- `src/` — TypeScript frontend (no framework), built with Vite
+- `src/` — TypeScript frontend (no framework), built with Vite. Build markup with the `html` template in `src/html.ts`, which escapes what's interpolated, and put it on the page with `setHtml`
 - `src-tauri/src/` — Rust backend: log loading and lane layout (`repo.rs`, `layout.rs`), diffs (`diff.rs`), conflicts (`conflict.rs`), and repository changes run through the user's `jj` (`jj_cli.rs`)
 - `src-tauri/examples/` — `fixture` and `dump` helpers for working without the app
 - `scripts/` — playground repo and screenshot helpers
