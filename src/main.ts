@@ -1,11 +1,11 @@
-// The window: a strip of repository tabs, each showing a RepoView. Tabs
+// The window: a strip of repository tabs, each showing a Repo. Tabs
 // drag to reorder, onto another window, or out into a window of their own.
 
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { fetchInitialRepo, isTauri, openFolder, storage } from "./api";
 import { escapeHtml } from "./format";
-import { RepoView } from "./repoview";
+import { Repo } from "./repo.svelte";
 import { applyPalette, applyTheme, showSettings } from "./settings";
 import { type MenuEntry, copy, dismissToasts, notify, showHelp, showMenu } from "./ui";
 import {
@@ -45,15 +45,14 @@ const STRIP_SLOP_ABOVE = 40;
 const STRIP_SLOP_BELOW = 24;
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const template = $<HTMLTemplateElement>("repo-template");
 const tabStrip = $("repo-tabs");
 const tabList = $("tab-list");
 const dropMarker = $("drop-marker");
 const viewsEl = $("views");
 const emptyEl = $("empty");
 
-const views: RepoView[] = [];
-let active: RepoView | null = null;
+const views: Repo[] = [];
+let active: Repo | null = null;
 let bounds: Bounds | undefined;
 
 /** Where a dragged tab would go if let go now; null puts it back. */
@@ -64,7 +63,7 @@ type DropTarget =
   | null;
 
 interface TabDrag {
-  view: RepoView;
+  view: Repo;
   pointerId: number;
   startX: number;
   startY: number;
@@ -90,10 +89,10 @@ const leavesWindow = (target: DropTarget) => target?.kind === "window" || target
  * apart: `work/repo` and `personal/repo` show `work` and `personal`, and
  * `a/x/repo` and `b/x/repo` show `a/x` and `b/x`.
  */
-function nameHints(): Map<RepoView, string> {
-  const groups = new Map<string, RepoView[]>();
+function nameHints(): Map<Repo, string> {
+  const groups = new Map<string, Repo[]>();
   for (const view of views) groups.set(view.name, [...(groups.get(view.name) ?? []), view]);
-  const hints = new Map<RepoView, string>();
+  const hints = new Map<Repo, string>();
   for (const group of groups.values()) {
     if (group.length < 2) continue;
     const parents = group.map((view) => view.path.split("/").filter(Boolean).slice(0, -1));
@@ -128,7 +127,7 @@ function renderTabs() {
   document.title = active ? `${active.name} — Jig` : "Jig";
 }
 
-function activate(view: RepoView) {
+function activate(view: Repo) {
   if (active === view) return;
   active?.root.classList.remove("active");
   active = view;
@@ -142,13 +141,13 @@ function activate(view: RepoView) {
 function openTab(
   path: string,
   { focus = true, index = views.length, changeId = null }: { focus?: boolean; index?: number; changeId?: string | null } = {},
-): RepoView {
+): Repo {
   const existing = views.find((v) => v.path === path);
   if (existing) {
     if (focus) activate(existing);
     return existing;
   }
-  const view = new RepoView(template, path);
+  const view = new Repo(path);
   view.onChange = renderTabs;
   view.onOpen = openRepo;
   if (changeId) view.selectOnLoad(changeId);
@@ -161,7 +160,7 @@ function openTab(
   return view;
 }
 
-function closeTab(view: RepoView) {
+function closeTab(view: Repo) {
   const index = views.indexOf(view);
   if (index < 0) return;
   views.splice(index, 1);
@@ -198,7 +197,7 @@ async function openRepo(path: string) {
   openTab(path);
 }
 
-function moveTab(view: RepoView, index: number) {
+function moveTab(view: Repo, index: number) {
   const from = views.indexOf(view);
   views.splice(from, 1);
   views.splice(Math.min(index, views.length), 0, view);
@@ -301,7 +300,7 @@ function cancelDrag() {
 }
 
 /** Moves a tab into a window of its own, with its selected commit. */
-async function moveToNewWindow(view: RepoView, { atCursor = false } = {}) {
+async function moveToNewWindow(view: Repo, { atCursor = false } = {}) {
   const path = view.path;
   const changeId = view.selectedChangeId();
   const session: WindowSession = { tabs: [path], active: path, selected: changeId ? { [path]: changeId } : undefined };

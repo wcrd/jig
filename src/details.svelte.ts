@@ -7,10 +7,9 @@
 // file on the right: that's drawn directly into its element, with only the
 // visible lines in the DOM, so huge files stay fast.
 
-import { mount, tick } from "svelte";
+import { tick } from "svelte";
 import { SvelteMap, SvelteSet } from "svelte/reactivity";
 
-import Details from "./components/Details.svelte";
 import {
   type Expansion,
   diffLines,
@@ -137,22 +136,24 @@ export class DetailsPanel {
   private expansions = new Map<string, Expansion>();
   private texts = new Map<string, Promise<FileText>>();
 
-  /** The diff or file on the right, drawn directly. */
-  private view: HTMLElement;
-  private fileList: HTMLElement;
+  /** The diff or file on the right, drawn directly; set by `attach`. */
+  private view!: HTMLElement;
+  private fileList!: HTMLElement;
   /** Draws only the visible lines of large diffs and files. */
-  private virtual: VirtualLines;
+  private virtual!: VirtualLines;
 
   constructor(
-    target: HTMLElement,
     readonly source: DetailsSource,
     prefs: { tab?: string | null; changesView?: string | null },
   ) {
     this.tab = (["commit", "changes", "tree"].includes(prefs.tab ?? "") ? prefs.tab : "commit") as DetailsTab;
     this.changesView = prefs.changesView === "tree" ? "tree" : "list";
-    mount(Details, { target, props: { panel: this } });
-    this.view = target.querySelector<HTMLElement>(".diff-view")!;
-    this.fileList = target.querySelector<HTMLElement>(".file-list")!;
+  }
+
+  /** Takes the elements Details.svelte drew: the view for the diff or file, and the file list. */
+  attach(view: HTMLElement, fileList: HTMLElement) {
+    this.view = view;
+    this.fileList = fileList;
     this.virtual = new VirtualLines(this.view);
 
     this.view.addEventListener("mousedown", (event) => {

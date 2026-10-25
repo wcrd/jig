@@ -1,18 +1,21 @@
-// One open repository: its toolbar, graph and details panel, with all of
-// its state. Each tab owns a RepoView, so switching tabs keeps scroll
-// position, selection and everything else.
+// One open repository: its state and commands, drawn by RepoView.svelte.
+// Each tab owns a Repo, so switching tabs keeps scroll position, selection
+// and everything else. The graph's rows are drawn here, only those in view.
 
 import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
+import { flushSync, mount } from "svelte";
+
+import RepoView from "./components/RepoView.svelte";
+import type Resolve from "./components/Resolve.svelte";
+import type OpLog from "./components/OpLog.svelte";
 import { DetailsPanel } from "./details.svelte";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { Relations } from "./relations";
 import { SearchBar, type SearchTarget } from "./search.svelte";
 import { renderRow } from "./rows";
-import { OpLogHost, ResolveHost, SidebarHost } from "./mounts.svelte";
 import type { SidebarItem } from "./sidebar";
-import { escapeHtml, remoteWebUrl } from "./format";
+import { remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
-import { showSettings } from "./settings";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
 const OVERSCAN = 8;
@@ -22,14 +25,14 @@ const DIFF_CACHE_SIZE = 64;
 /** Command lines kept for ↑ / ↓ in the `:` prompt. */
 const EXEC_HISTORY_SIZE = 50;
 
-type RebaseMode = "revision" | "source" | "branch";
-type Placement = "onto" | "after" | "before";
+export type RebaseMode = "revision" | "source" | "branch";
+export type Placement = "onto" | "after" | "before";
 
 /**
  * A multi-step operation in progress, jjui-style: choose with the keyboard
  * or mouse, then Enter to run it or Esc to cancel. Nothing changes until then.
  */
-type Pending =
+export type Pending =
   /** `sources` are the marked commits, or the selected one; top to bottom. */
   | { kind: "rebase"; sources: number[]; mode: RebaseMode; placement: Placement; target: number }
   | { kind: "squash"; sources: number[]; target: number; paths: string[] }
@@ -75,24 +78,39 @@ const PENDING_LABELS: Record<Pending["kind"], string> = {
   revert: "Revert",
 };
 
-const MODE_LABELS: Record<RebaseMode, string> = {
+export const MODE_LABELS: Record<RebaseMode, string> = {
   revision: "This commit",
   source: "With descendants",
   branch: "Whole branch",
 };
-const PLACEMENT_LABELS: Record<Placement, string> = { onto: "onto", after: "after", before: "before" };
+export const PLACEMENT_LABELS: Record<Placement, string> = { onto: "onto", after: "after", before: "before" };
 
-export class RepoView {
+export class Repo {
   readonly root: HTMLElement;
   /** Shown in the tab; the folder name until the log loads. */
-  name: string;
+  name = $state("");
   onChange: () => void = () => {};
   /** Opens another repo or workspace in a tab. */
   onOpen: (path: string) => void = () => {};
 
   /** The revset the user asked for; empty means the configured default. */
-  private revset: string;
-  private log: LogResponse | null = null;
+  revset = $state("");
+  /** The configured default revset, shown when none is asked for; null until the log loads. */
+  defaultRevset = $state<string | null>(null);
+  log = $state.raw<LogResponse | null>(null);
+  /** The toolbar's status text, and its tooltip. */
+  status = $state("");
+  statusTitle = $state<string | undefined>(undefined);
+  /** Loading the log failed. */
+  error = $state<string | null>(null);
+  /** The selected commit, which the sidebar highlights entries for. */
+  selectedCommit = $state<string | null>(null);
+  oplogVisible = $state(false);
+  resolveVisible = $state(false);
+  /** Bumped when the pending operation changes, to redraw the modebar. */
+  modeVersion = $state(0);
+  /** The kind of the last operation shown in the modebar. */
+  lastModeKind = $state("");
   private graph: Graph | null = null;
   private selected = -1;
   /** A change to select on the first load, for a tab moved from another window. */
@@ -103,7 +121,7 @@ export class RepoView {
   private compareSwapped = false;
   private compareCache = new Map<string, CompareDiff>();
   private relations: Relations | null = null;
-  private pending: Pending | null = null;
+  pending: Pending | null = null;
   /** Commits marked with Space, which the next rebase, squash, copy, revert or abandon takes. */
   private marked = new Set<number>();
   private searchBar = new SearchBar();
@@ -113,7 +131,6 @@ export class RepoView {
   private searchQuery = "";
   private searchMatches: number[] = [];
   private searchCurrent = -1;
-  private modebar!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
   private loading = false;
   private polling = false;
@@ -128,37 +145,21 @@ export class RepoView {
   /** ←: the details panel shrinks to its tab bar, leaving the graph the window. */
   private detailsMin = false;
   private detailsRequest = 0;
-  private details: DetailsPanel;
-  private sidebar: SidebarHost;
-  private oplog: OpLogHost;
-  private resolver: ResolveHost;
+  readonly details: DetailsPanel;
+  /** Set when RepoView draws them. */
+  oplog: ReturnType<typeof OpLog> | undefined;
+  resolver: ReturnType<typeof Resolve> | undefined;
   /** The change being resolved; its commit changes with every resolution. */
   private resolving: LogRow | null = null;
 
   private scroller: HTMLElement;
   private spacer: HTMLElement;
-  private revsetInput: HTMLInputElement;
-  private revsetPreset: HTMLSelectElement;
-  private statusEl: HTMLElement;
-  private errorEl: HTMLElement;
 
-  constructor(
-    template: HTMLTemplateElement,
-    readonly path: string,
-  ) {
-    this.root = (template.content.firstElementChild as HTMLElement).cloneNode(true) as HTMLElement;
+  constructor(readonly path: string) {
     this.name = path.split("/").filter(Boolean).pop() ?? path;
     this.revset = storage(`revset:${path}`) ?? "";
 
-    this.scroller = this.ref("scroller");
-    this.spacer = this.ref("spacer");
-    this.revsetInput = this.ref("revset-input");
-    this.revsetPreset = this.ref("revset-preset");
-    this.statusEl = this.ref("status");
-    this.errorEl = this.ref("error");
-
     this.details = new DetailsPanel(
-      this.ref("details"),
       {
         fileText: (commitId, filePath) => fetchFileText(this.path, commitId, filePath),
         fileDiff: (from, to, file, force) => fetchFileDiff(this.path, from, to, file.path, file.sourcePath, force),
@@ -179,45 +180,71 @@ export class RepoView {
       { tab: storage("detailsTab"), changesView: storage("changesView") },
     );
 
-    this.oplog = new OpLogHost(
-      this.ref("oplog"),
-      path,
-      (label, run) => this.act(label, run),
-      (visible) => {
-        // The op log takes the place of the graph and details while open.
-        this.root.classList.toggle("showing-oplog", visible);
-        this.ref("oplog-button").classList.toggle("active", visible);
-        if (!visible) this.render();
-      },
-      (commitId) => {
-        this.oplog.hide();
-        this.selectCommit(commitId, "That commit");
-      },
-    );
+    this.root = document.createElement("div");
+    this.root.className = "repo-view";
+    mount(RepoView, { target: this.root, props: { repo: this } });
+    flushSync();
+    this.scroller = this.ref("scroller");
+    this.spacer = this.ref("spacer");
+    this.details.attach(this.ref("diff-view"), this.ref("file-list"));
 
-    this.resolver = new ResolveHost(this.ref("resolve"), {
-      loadConflict: (commitId, filePath) => fetchConflictHunks(this.path, commitId, filePath),
-      resolve: (filePath, content) =>
-        this.resolveConflict(filePath, (row) => jj.resolve(this.path, row.commitId, filePath, content)),
-      takeSide: (filePath, side) =>
-        this.resolveConflict(filePath, (row) => jj.resolveSide(this.path, row.commitId, filePath, side)),
-      close: () => this.closeResolve(),
-    });
-
-    this.sidebar = new SidebarHost(this.ref("sidebar"), this.name, {
-      select: (item) => this.selectCommit(item.commitId, item.name),
-      contextMenu: (item) => this.sidebarMenu(item),
-      addWorkspace: () => this.addWorkspace(null),
-    });
     window.addEventListener("graph-date-change", () => {
       this.clearRows();
       this.render();
     });
-
-    this.revsetInput.value = this.revset;
-    this.syncPreset();
     this.bindEvents();
     this.applySavedSizes();
+  }
+
+  /** The op log takes the place of the graph and details while open. */
+  async showOpLog() {
+    this.setOpLogVisible(true);
+    await this.oplog?.refresh();
+  }
+
+  hideOpLog() {
+    this.setOpLogVisible(false);
+  }
+
+  toggleOpLog() {
+    if (this.oplogVisible) this.hideOpLog();
+    else this.showOpLog();
+  }
+
+  private setOpLogVisible(visible: boolean) {
+    this.oplogVisible = visible;
+    this.root.classList.toggle("showing-oplog", visible);
+    if (!visible) this.render();
+  }
+
+  loadConflict(commitId: string, filePath: string) {
+    return fetchConflictHunks(this.path, commitId, filePath);
+  }
+
+  resolveFile(filePath: string, content: string) {
+    return this.resolveConflict(filePath, (row) => jj.resolve(this.path, row.commitId, filePath, content));
+  }
+
+  takeSide(filePath: string, side: "ours" | "theirs") {
+    return this.resolveConflict(filePath, (row) => jj.resolveSide(this.path, row.commitId, filePath, side));
+  }
+
+  /** Pushes every bookmark, or with several remotes, offers a menu of them under `button`. */
+  push(button: HTMLElement) {
+    const remotes = this.remotes();
+    if (remotes.length <= 1) return this.act("Push", () => jj.gitPush(this.path));
+    const rect = button.getBoundingClientRect();
+    showMenu(this.pushAllEntries(remotes), { x: rect.left, y: rect.bottom });
+  }
+
+  setMode(mode: RebaseMode) {
+    if (this.pending?.kind === "rebase") this.pending.mode = mode;
+    this.updatePending();
+  }
+
+  setPlacement(placement: Placement) {
+    if (this.pending && "placement" in this.pending) this.pending.placement = placement;
+    this.updatePending();
   }
 
   private ref<T extends HTMLElement>(name: string): T {
@@ -253,37 +280,12 @@ export class RepoView {
     });
     this.ref("list").addEventListener("mousedown", () => (this.searchZone = "graph"), true);
     this.ref("diff-view").addEventListener("mousedown", () => (this.searchZone = "diff"), true);
-    this.modebar = this.ref("modebar");
-    this.modebar.addEventListener("click", (event) => {
-      const button = (event.target as HTMLElement).closest<HTMLElement>("button");
-      const p = this.pending;
-      if (!button || !p) return;
-      if (button.dataset.action === "run") return this.runPending();
-      if (button.dataset.action === "cancel") return this.cancelPending();
-      if (button.dataset.action === "message" && p.kind === "split") return this.editSplitMessage(button.dataset.commit === "second");
-      if (p.kind === "rebase" && button.dataset.mode) p.mode = button.dataset.mode as RebaseMode;
-      if ("placement" in p && button.dataset.placement) p.placement = button.dataset.placement as Placement;
-      this.updatePending();
-    });
-    this.ref("refresh").addEventListener("click", () => this.refresh());
-    this.ref("fetch").addEventListener("click", () => this.fetch());
-    this.ref("push").addEventListener("click", () => {
-      const remotes = this.remotes();
-      if (remotes.length <= 1) return this.act("Push", () => jj.gitPush(this.path));
-      const rect = this.ref("push").getBoundingClientRect();
-      showMenu(this.pushAllEntries(remotes), { x: rect.left, y: rect.bottom });
-    });
-    this.ref("oplog-button").addEventListener("click", () => this.oplog.toggle());
-    this.ref("help").addEventListener("click", () => showHelp());
     this.ref("full-diff-enter").addEventListener("click", () => this.toggleFullDiff());
     // Picking a tab brings a minimised panel back.
     this.ref("detail-tabs").addEventListener("click", (event) => {
       if ((event.target as HTMLElement).closest("[data-tab]")) this.setDetailsMin(false);
     });
     this.ref("full-diff-exit").addEventListener("click", () => this.toggleFullDiff());
-    this.ref("settings").addEventListener("click", () => showSettings());
-    this.ref("undo").addEventListener("click", () => this.act("Undo", () => jj.undo(this.path)));
-    this.ref("redo").addEventListener("click", () => this.act("Redo", () => jj.redo(this.path)));
     this.spacer.addEventListener("contextmenu", (event) => {
       const row = (event.target as HTMLElement).closest<HTMLElement>(".row");
       if (!row) return;
@@ -299,18 +301,6 @@ export class RepoView {
       }
       this.commitMenu(index, previous);
     });
-    this.revsetPreset.addEventListener("change", () => {
-      if (this.revsetPreset.value !== "custom") this.applyRevset(this.revsetPreset.value);
-    });
-    this.revsetInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        this.applyRevset(this.revsetInput.value);
-        this.revsetInput.blur();
-      } else if (event.key === "Escape") {
-        this.revsetInput.value = this.revset;
-        this.revsetInput.blur();
-      }
-    });
     this.splitter(this.ref("split-sidebar"), this.ref("sidebar"), "columns", "sidebarWidth", 160, 0.4);
     this.splitter(this.ref("split-details"), this.ref("details"), "rows", "detailsHeight", 120, 0.85);
     this.splitter(this.ref("split-info"), this.ref("info-pane"), "columns", "infoWidth", 220, 0.6);
@@ -320,8 +310,8 @@ export class RepoView {
    * Reloads after importing git refs, so tags and branches changed with the
    * git CLI show up. Fails quietly in repos without a git backend.
    */
-  private async refresh() {
-    this.statusEl.textContent = "Loading…";
+  async refresh() {
+    this.status = "Loading…";
     await jj.gitImport(this.path).catch(() => {});
     await this.load({ keepPosition: true });
   }
@@ -333,10 +323,10 @@ export class RepoView {
     const previousRows = this.log?.rows ?? [];
     const previousChange = this.selectedChangeId() ?? this.initialChange;
     const previousScroll = this.scroller.scrollTop;
-    this.statusEl.textContent = "Loading…";
+    this.status = "Loading…";
     try {
       const next = await fetchLog(this.path, this.revset);
-      this.errorEl.hidden = true;
+      this.error = null;
       this.log = next;
       this.graph = new Graph(next.rows, next.edges);
       this.relations = new Relations(next.rows.length, next.edges);
@@ -359,9 +349,7 @@ export class RepoView {
       }
       this.updateModebar();
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
-      this.sidebar.name = this.name;
-      this.sidebar.log = next;
-      this.revsetInput.placeholder = next.defaultRevset;
+      this.defaultRevset = next.defaultRevset;
       const previousCompare = this.compareIndex >= 0 ? this.log?.rows[this.compareIndex]?.changeId : null;
       let selected = previousChange ? next.rows.findIndex((r) => r.changeId === previousChange) : -1;
       this.compareIndex = previousCompare ? next.rows.findIndex((r) => r.changeId === previousCompare) : -1;
@@ -377,14 +365,12 @@ export class RepoView {
       this.clearRows();
       this.renderNow();
       this.updateStatus();
-      this.sidebar.data = next.sidebar;
-      this.oplog.refresh();
+      if (this.oplogVisible) this.oplog?.refresh();
       this.scheduleDetails(keepPosition);
       this.onChange();
     } catch (err) {
-      this.errorEl.textContent = String(err);
-      this.errorEl.hidden = false;
-      this.statusEl.textContent = "";
+      this.error = String(err);
+      this.status = "";
     } finally {
       this.loading = false;
     }
@@ -490,8 +476,9 @@ export class RepoView {
   }
 
   focusRevset() {
-    this.revsetInput.focus();
-    this.revsetInput.select();
+    const input = this.ref<HTMLInputElement>("revset-input");
+    input.focus();
+    input.select();
   }
 
   /** Handles keys for the list; returns whether the key was used. */
@@ -501,14 +488,14 @@ export class RepoView {
     const focused = event.target instanceof Element ? event.target : null;
     if (focused?.closest("input, textarea, select, [contenteditable]") || !this.log) return false;
     if (event.metaKey || event.ctrlKey) return false;
-    if (this.oplog.visible) {
-      if (event.key === "Escape" || event.key === "o") this.oplog.hide();
+    if (this.oplogVisible) {
+      if (event.key === "Escape" || event.key === "o") this.hideOpLog();
       return event.key === "Escape" || event.key === "o";
     }
     // The resolver owns the keyboard: n / p move between conflicts.
-    if (this.resolver.visible) {
+    if (this.resolveVisible) {
       if (event.key === "Escape") this.closeResolve();
-      else if (event.key === "n" || event.key === "p") this.resolver.jump(event.key === "n" ? 1 : -1);
+      else if (event.key === "n" || event.key === "p") this.resolver?.jump(event.key === "n" ? 1 : -1);
       return event.key === "Escape" || event.key.length === 1;
     }
     if (this.pending) return this.handlePendingKey(event);
@@ -583,7 +570,7 @@ export class RepoView {
         this.act("Redo", () => jj.redo(this.path));
         return true;
       case "o":
-        this.oplog.toggle();
+        this.toggleOpLog();
         return true;
       case "g":
         showMenu([
@@ -804,7 +791,7 @@ export class RepoView {
     this.updatePending();
   }
 
-  private cancelPending() {
+  cancelPending() {
     if (this.pending?.kind === "split") this.details.endSplit();
     this.pending = null;
     this.updatePending();
@@ -827,7 +814,7 @@ export class RepoView {
   }
 
   /** Rows the pending rebase or squash would move, as best the loaded graph shows. */
-  private movingRows(): Set<number> {
+  movingRows(): Set<number> {
     const p = this.pending!;
     if (p.kind === "abandon") return p.marked;
     if (p.kind === "parents") return this.relations!.descendants([p.source]);
@@ -837,7 +824,7 @@ export class RepoView {
     return this.relations!.branch(p.sources, p.target);
   }
 
-  private pendingProblem(): string | null {
+  pendingProblem(): string | null {
     const p = this.pending!;
     const rows = this.log!.rows;
     if (p.kind === "abandon") {
@@ -951,83 +938,11 @@ export class RepoView {
   private updateModebar() {
     const p = this.pending;
     this.root.classList.toggle("rebasing", !!p);
-    if (!p || !this.log) {
-      this.modebar.hidden = true;
-      return;
-    }
-    const rows = this.log.rows;
-    const id = (i: number) => `<span class="id change-id">${rows[i].changeId.slice(0, 8)}</span>`;
-    const summary = (i: number) =>
-      `<span class="modebar-summary">${escapeHtml(rows[i].summary || "(no description set)")}</span>`;
-    // One commit with its summary, or the first of several and how many more.
-    const commits = (sources: number[]) =>
-      sources.length === 1 ? `${id(sources[0])} ${summary(sources[0])}` : `${id(sources[0])} <span class="muted">+${sources.length - 1}</span>`;
-    const segment = <T extends string>(attr: string, value: T, current: T, label: string, key: string) =>
-      `<button class="${value === current ? "active" : ""}" data-${attr}="${value}" title="${key}">${label}</button>`;
-    const problem = this.pendingProblem();
-    let body: string;
-    let action: string;
-    let hint: string;
-    if (p.kind === "rebase") {
-      const count = this.movingRows().size;
-      body =
-        `<span class="modebar-title">Rebase</span><span class="segmented">` +
-        segment("mode", "revision", p.mode, MODE_LABELS.revision, "r") +
-        segment("mode", "source", p.mode, MODE_LABELS.source, "s") +
-        segment("mode", "branch", p.mode, MODE_LABELS.branch, "⇧B") +
-        `</span>${id(p.sources[0])}${count > 1 ? ` <span class="muted">+${count - 1}</span>` : ""}<span class="segmented">` +
-        segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
-        segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
-        segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "b") +
-        `</span>${id(p.target)} ${summary(p.target)}`;
-      action = "Rebase";
-      hint = "↑↓ choose · Enter · Esc";
-    } else if (p.kind === "duplicate" || p.kind === "revert") {
-      const title = p.kind === "duplicate" ? "Copy" : "Revert";
-      body =
-        `<span class="modebar-title">${title}</span>${commits(p.sources)}<span class="segmented">` +
-        segment("placement", "onto", p.placement, PLACEMENT_LABELS.onto, "o") +
-        segment("placement", "after", p.placement, PLACEMENT_LABELS.after, "a") +
-        segment("placement", "before", p.placement, PLACEMENT_LABELS.before, "b") +
-        `</span>${id(p.target)} ${summary(p.target)}`;
-      action = p.kind === "duplicate" ? "Copy" : "Revert";
-      hint = "↑↓ choose · Enter · Esc";
-    } else if (p.kind === "squash") {
-      const what = p.paths.length === 0 ? "" : ` <span class="muted">(${p.paths.length === 1 ? escapeHtml(p.paths[0]) : `${p.paths.length} files`})</span>`;
-      const from = p.sources.length === 1 ? id(p.sources[0]) : commits(p.sources);
-      body = `<span class="modebar-title">Squash</span>${from}${what} <span class="muted">into</span> ${id(p.target)} ${summary(p.target)}`;
-      action = "Squash";
-      hint = "↑↓ choose · Enter · Esc";
-    } else if (p.kind === "split") {
-      const { selected, total } = this.details.splitCounts();
-      body =
-        `<span class="modebar-title">Split</span>${id(p.source)} ${summary(p.source)}` +
-        `<span class="muted">${selected} of ${total} ${total === 1 ? "change" : "changes"} ticked for the first commit</span>` +
-        `<button class="modebar-button" data-action="message" data-commit="first">${p.message === null ? "First commit message…" : "Edit first message…"}</button>` +
-        `<button class="modebar-button" data-action="message" data-commit="second">${p.secondMessage === null ? "Second commit message…" : "Edit second message…"}</button>`;
-      action = "Split";
-      hint = "Tick files, hunks or lines · Enter · Esc";
-    } else if (p.kind === "parents") {
-      const parents = p.marked.length > 0 ? p.marked.map((i) => id(i)).join(" ") : `<span class="muted">none</span>`;
-      body = `<span class="modebar-title">Set Parents</span>${id(p.source)} ${summary(p.source)} <span class="muted">onto</span> ${parents}`;
-      action = "Set Parents";
-      hint = "Space mark · Enter · Esc";
-    } else {
-      const count = p.marked.size;
-      body = `<span class="modebar-title">Abandon</span><span>${count} ${count === 1 ? "commit" : "commits"} marked</span>`;
-      action = "Abandon";
-      hint = "Space mark · s descendants · Enter · Esc";
-    }
-    this.modebar.hidden = false;
-    this.modebar.className = `modebar ${p.kind}`;
-    this.modebar.innerHTML =
-      body +
-      (problem ? `<span class="modebar-problem">${escapeHtml(problem)}</span>` : "") +
-      `<span class="modebar-actions"><span class="muted">${hint}</span>` +
-      `<button data-action="cancel">Cancel</button><button data-action="run" class="primary"${problem ? " disabled" : ""}>${action}</button></span>`;
+    if (p) this.lastModeKind = p.kind;
+    this.modeVersion++;
   }
 
-  private async runPending() {
+  async runPending() {
     const p = this.pending;
     if (!p || this.pendingProblem()) return;
     const rows = this.log!.rows;
@@ -1087,16 +1002,18 @@ export class RepoView {
   private openResolve(filePath: string, conflicts: string[]) {
     const row = this.log?.rows[this.selected];
     if (!row) return;
-    this.oplog.hide();
+    this.hideOpLog();
     this.resolving = row;
     this.root.classList.add("showing-resolve");
-    this.resolver.open(row, conflicts, filePath);
+    this.resolveVisible = true;
+    this.resolver?.open(row, conflicts, filePath);
   }
 
-  private closeResolve() {
+  closeResolve() {
     const row = this.resolving;
     this.resolving = null;
-    this.resolver.hide();
+    this.resolveVisible = false;
+    this.resolver?.hide();
     this.root.classList.remove("showing-resolve");
     if (row) this.selectCommit(this.log?.rows.find((r) => r.changeId === row.changeId)?.commitId ?? null, row.changeId.slice(0, 8));
     this.render();
@@ -1122,11 +1039,11 @@ export class RepoView {
     }
     this.resolving = next;
     if (conflicts.length === 0) return this.closeResolve();
-    this.resolver.update(next, conflicts, undefined, filePath);
+    this.resolver?.update(next, conflicts, undefined, filePath);
   }
 
   /** Edits the message for the first commit (the ticked changes) or the second (the rest). */
-  private async editSplitMessage(second: boolean) {
+  async editSplitMessage(second: boolean) {
     const p = this.pending;
     if (p?.kind !== "split") return;
     const row = this.log!.rows[p.source];
@@ -1240,8 +1157,8 @@ export class RepoView {
     const log = this.log!;
     const count = `${log.rows.length.toLocaleString()} ${log.rows.length === 1 ? "commit" : "commits"}`;
     const marked = this.marked.size > 0 ? ` · ${this.marked.size} marked` : "";
-    this.statusEl.textContent = `${count}${log.truncated ? " (truncated)" : ""}${marked} · ${log.elapsedMs} ms`;
-    this.statusEl.title = `Operation ${log.opId}: ${log.opDescription}`;
+    this.status = `${count}${log.truncated ? " (truncated)" : ""}${marked} · ${log.elapsedMs} ms`;
+    this.statusTitle = `Operation ${log.opId}: ${log.opDescription}`;
   }
 
   private render() {
@@ -1330,7 +1247,7 @@ export class RepoView {
   private scheduleDetails(refresh = false) {
     clearTimeout(this.detailsTimer);
     const row = this.log && this.selected >= 0 ? this.log.rows[this.selected] : null;
-    this.sidebar.selectedCommit = row?.commitId ?? null;
+    this.selectedCommit = row?.commitId ?? null;
     if (row && this.compareIndex >= 0 && this.compareIndex !== this.selected) {
       this.scheduleCompare(refresh);
       return;
@@ -1390,7 +1307,7 @@ export class RepoView {
    * for commands that make more than one operation, or how to undo them.
    * `keepOutput` leaves the toast up when the command printed something.
    */
-  private async act(
+  async act(
     label: string,
     run: () => Promise<CommandOutput>,
     options: { undo?: boolean | number | (() => Promise<CommandOutput>); keepOutput?: boolean } = {},
@@ -1415,7 +1332,7 @@ export class RepoView {
   }
 
   /** Fetches, then offers to clean up commits that landed on the remote as other commits. */
-  private async fetch(remote: string | null = null) {
+  async fetch(remote: string | null = null) {
     const ok = await this.act(remote ? `Fetch ${remote}` : "Fetch", () => jj.gitFetch(this.path, remote));
     if (!ok) return;
     const leftovers = await fetchLandedLeftovers(this.path).catch(() => []);
@@ -1490,7 +1407,7 @@ export class RepoView {
    * workspace's). A bare name goes beside the repo's folder; anything with a
    * `/` is a folder, relative to the repo's.
    */
-  private async addWorkspace(row: LogRow | null) {
+  async addWorkspace(row: LogRow | null) {
     const root = this.log?.workspaceRoot ?? this.path;
     const beside = `${root.split("/").slice(0, -1).join("/")}/${this.name}-<name>`;
     const on = row ? ` on ${row.changeId.slice(0, 8)}` : "";
@@ -1521,7 +1438,7 @@ export class RepoView {
   }
 
   /** Selects the row for a commit, if it's in the current view. */
-  private selectCommit(commitId: string | null, what: string) {
+  selectCommit(commitId: string | null, what: string) {
     const index = commitId ? (this.log?.rows.findIndex((r) => r.commitId === commitId) ?? -1) : -1;
     if (index >= 0) {
       this.compareIndex = -1;
@@ -1530,7 +1447,7 @@ export class RepoView {
       // Bring it to the middle of the list.
       this.scroller.scrollTop = Math.max(0, index * ROW_HEIGHT - this.scroller.clientHeight / 2);
     } else {
-      this.statusEl.textContent = `${what} isn't in the current revset`;
+      this.status = `${what} isn't in the current revset`;
     }
   }
 
@@ -1783,7 +1700,7 @@ export class RepoView {
     ]);
   }
 
-  private sidebarMenu(item: SidebarItem) {
+  sidebarMenu(item: SidebarItem) {
     const entries: MenuEntry[] = [];
     if (item.kind === "remoteRoot" && item.remote) {
       const remote = item.remote;
@@ -1820,16 +1737,9 @@ export class RepoView {
     showMenu(entries);
   }
 
-  private syncPreset() {
-    const match = [...this.revsetPreset.options].find((o) => o.value === this.revset && o.value !== "custom");
-    this.revsetPreset.value = match ? match.value : "custom";
-  }
-
-  private applyRevset(value: string) {
+  applyRevset(value: string) {
     this.revset = value.trim();
     storage(`revset:${this.path}`, this.revset || null);
-    this.revsetInput.value = this.revset;
-    this.syncPreset();
     this.load();
   }
 
