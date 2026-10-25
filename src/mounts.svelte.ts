@@ -6,9 +6,10 @@
 import { mount } from "svelte";
 
 import OpLog from "./components/OpLog.svelte";
+import Resolve, { type ResolveCallbacks } from "./components/Resolve.svelte";
 import Sidebar from "./components/Sidebar.svelte";
 import type { SidebarCallbacks } from "./sidebar";
-import type { CommandOutput, LogResponse, Sidebar as SidebarData } from "./types";
+import type { CommandOutput, LogResponse, LogRow, Sidebar as SidebarData } from "./types";
 
 export class SidebarHost {
   data = $state.raw<SidebarData | null>(null);
@@ -79,5 +80,39 @@ export class OpLogHost {
 
   async refresh() {
     if (this.visible) await this.view.refresh();
+  }
+}
+
+export class ResolveHost {
+  private view: ReturnType<typeof Resolve>;
+
+  constructor(
+    private el: HTMLElement,
+    callbacks: ResolveCallbacks,
+  ) {
+    this.view = mount(Resolve, { target: el, props: callbacks });
+  }
+
+  get visible(): boolean {
+    return !this.el.hidden;
+  }
+
+  open(row: LogRow, conflicts: string[], path: string) {
+    this.el.hidden = false;
+    this.view.open(row, conflicts, path);
+  }
+
+  hide() {
+    this.el.hidden = true;
+    this.view.hide();
+  }
+
+  /** After a resolution: the rewritten commit and what's still conflicted. */
+  update(row: LogRow, conflicts: string[], next?: string, justResolved?: string) {
+    this.view.update(row, conflicts, next, justResolved);
+  }
+
+  jump(delta: 1 | -1) {
+    this.view.jump(delta);
   }
 }

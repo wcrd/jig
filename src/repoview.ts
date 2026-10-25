@@ -7,9 +7,8 @@ import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
 import { Relations } from "./relations";
 import { SearchBar, type SearchTarget } from "./search.svelte";
-import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
-import { OpLogHost, SidebarHost } from "./mounts.svelte";
+import { OpLogHost, ResolveHost, SidebarHost } from "./mounts.svelte";
 import type { SidebarItem } from "./sidebar";
 import { escapeHtml, remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
@@ -132,7 +131,7 @@ export class RepoView {
   private details: DetailsPanel;
   private sidebar: SidebarHost;
   private oplog: OpLogHost;
-  private resolver: ResolveView;
+  private resolver: ResolveHost;
   /** The change being resolved; its commit changes with every resolution. */
   private resolving: LogRow | null = null;
 
@@ -203,7 +202,7 @@ export class RepoView {
       },
     );
 
-    this.resolver = new ResolveView(this.ref("resolve"), {
+    this.resolver = new ResolveHost(this.ref("resolve"), {
       loadConflict: (commitId, filePath) => fetchConflictHunks(this.path, commitId, filePath),
       resolve: (filePath, content) =>
         this.resolveConflict(filePath, (row) => jj.resolve(this.path, row.commitId, filePath, content)),
