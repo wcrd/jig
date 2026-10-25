@@ -7,10 +7,19 @@
 
 ## Layout
 
-- `src/` — TypeScript frontend (no framework), built with Vite. Build markup with the `html` template in `src/html.ts`, which escapes what's interpolated, and put it on the page with `setHtml`
+- `src/` — the frontend, in Svelte 5 and TypeScript, built with Vite; see [Frontend](#frontend)
 - `src-tauri/src/` — Rust backend: log loading and lane layout (`repo.rs`, `layout.rs`), diffs (`diff.rs`), conflicts (`conflict.rs`), and repository changes run through the user's `jj` (`jj_cli.rs`)
 - `src-tauri/examples/` — `fixture` and `dump` helpers for working without the app
-- `scripts/` — playground repo and screenshot helpers
+- `scripts/` — playground repo, benchmark and screenshot helpers
+
+## Frontend
+
+- Components are in `src/components/`. `App.svelte` is the window and its tabs, `RepoView.svelte` one repository, with `Sidebar`, `Details`, `OpLog`, `Resolve` and the dialogs under them.
+- State and commands live in classes in `.svelte.ts` files, which components read: `Repo` (`repo.svelte.ts`) for a repository, `DetailsPanel` (`details.svelte.ts`) for the details panel, and the tabs in `tabs.svelte.ts`. Their fields are `$state`, so changing one redraws what shows it.
+- Data from the backend (logs, diffs, trees) is `$state.raw`: it's replaced whole, never changed in place, so Svelte doesn't make it deeply reactive. That matters on large repos.
+- Two hot paths aren't components, and are drawn directly into an element: the graph's rows (`rows.ts` and `graph.ts`, drawn by `Repo`, only those in view) and the lines of a diff or file (`diffview.ts`, drawn by `VirtualLines` in `virtual.ts`). They build markup as strings, so every piece of text from a repository goes through `escapeHtml` (`format.ts`); for new string-built markup, prefer the `html` template in `html.ts`, which escapes what's interpolated, with `setHtml`. Run the [benchmark](#benchmark) before and after changing them.
+- Styles are global, in `src/styles.css`; components use its class names.
+- `npm run check` runs `svelte-check`; `npm run build` runs it too and fails on warnings.
 
 ## Running the app
 
