@@ -72,6 +72,29 @@ export interface TreeRenderOptions {
 /** A visible row of a tree: a folder by path, or a file by item. */
 export type TreeRow = { folder: string } | { item: number };
 
+/** A visible row with what it takes to draw it: its name, depth and, for folders, whether open. */
+export type TreeLine =
+  | { folder: string; name: string; depth: number; open: boolean }
+  | { item: number; name: string; depth: number; node: TreeNode };
+
+/** The expanded part of a tree, in order, as rows to draw. */
+export function treeLines(root: TreeNode, collapsed: Set<string>): TreeLine[] {
+  const lines: TreeLine[] = [];
+  const walk = (node: TreeNode, depth: number) => {
+    for (const child of node.children) {
+      if (child.item === undefined) {
+        const open = !collapsed.has(child.path);
+        lines.push({ folder: child.path, name: child.name, depth, open });
+        if (open) walk(child, depth + 1);
+      } else {
+        lines.push({ item: child.item, name: child.name, depth, node: child });
+      }
+    }
+  };
+  walk(root, 0);
+  return lines;
+}
+
 /** Renders the expanded part of a tree; returns its visible rows in order. */
 export function renderTree(root: TreeNode, options: TreeRenderOptions): { html: string; rows: TreeRow[] } {
   let html = "";

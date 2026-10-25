@@ -5,12 +5,12 @@
 import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import { DetailsPanel } from "./details";
 import { Graph, ROW_HEIGHT } from "./graph";
-import { OpLogPanel } from "./oplog";
 import { Relations } from "./relations";
 import { SearchBar, type SearchTarget } from "./search.svelte";
 import { ResolveView } from "./resolve";
 import { renderRow } from "./rows";
-import { Sidebar, type SidebarItem } from "./sidebar";
+import { OpLogHost, SidebarHost } from "./mounts.svelte";
+import type { SidebarItem } from "./sidebar";
 import { escapeHtml, remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
 import { showSettings } from "./settings";
@@ -130,8 +130,8 @@ export class RepoView {
   private detailsMin = false;
   private detailsRequest = 0;
   private details: DetailsPanel;
-  private sidebar: Sidebar;
-  private oplog: OpLogPanel;
+  private sidebar: SidebarHost;
+  private oplog: OpLogHost;
   private resolver: ResolveView;
   /** The change being resolved; its commit changes with every resolution. */
   private resolving: LogRow | null = null;
@@ -187,7 +187,7 @@ export class RepoView {
       { tab: storage("detailsTab"), changesView: storage("changesView") },
     );
 
-    this.oplog = new OpLogPanel(
+    this.oplog = new OpLogHost(
       this.ref("oplog"),
       path,
       (label, run) => this.act(label, run),
@@ -212,12 +212,11 @@ export class RepoView {
       close: () => this.closeResolve(),
     });
 
-    this.sidebar = new Sidebar(this.ref("sidebar"), {
+    this.sidebar = new SidebarHost(this.ref("sidebar"), this.name, {
       select: (item) => this.selectCommit(item.commitId, item.name),
       contextMenu: (item) => this.sidebarMenu(item),
       addWorkspace: () => this.addWorkspace(null),
     });
-    this.ref("repo-name").textContent = this.name;
     window.addEventListener("graph-date-change", () => {
       this.clearRows();
       this.render();
@@ -368,7 +367,8 @@ export class RepoView {
       }
       this.updateModebar();
       this.name = next.workspaceRoot.split("/").pop() || next.workspaceRoot;
-      this.showRepoName(next);
+      this.sidebar.name = this.name;
+      this.sidebar.log = next;
       this.revsetInput.placeholder = next.defaultRevset;
       const previousCompare = this.compareIndex >= 0 ? this.log?.rows[this.compareIndex]?.changeId : null;
       let selected = previousChange ? next.rows.findIndex((r) => r.changeId === previousChange) : -1;
@@ -385,7 +385,7 @@ export class RepoView {
       this.clearRows();
       this.renderNow();
       this.updateStatus();
-      this.sidebar.setData(next.sidebar);
+      this.sidebar.data = next.sidebar;
       this.oplog.refresh();
       this.scheduleDetails(keepPosition);
       this.onChange();
@@ -396,14 +396,6 @@ export class RepoView {
     } finally {
       this.loading = false;
     }
-  }
-
-  /** The repo's folder name atop the sidebar, with the workspace when it isn't the default. */
-  private showRepoName(log: LogResponse) {
-    const el = this.ref("repo-name");
-    const workspace = log.workspaceName !== "default" ? ` <span class="workspace-name">· ${escapeHtml(log.workspaceName)}</span>` : "";
-    el.innerHTML = escapeHtml(this.name) + workspace;
-    el.title = log.workspaceRoot;
   }
 
   /**
@@ -1346,7 +1338,7 @@ export class RepoView {
   private scheduleDetails(refresh = false) {
     clearTimeout(this.detailsTimer);
     const row = this.log && this.selected >= 0 ? this.log.rows[this.selected] : null;
-    this.sidebar.setSelectedCommit(row?.commitId ?? null);
+    this.sidebar.selectedCommit = row?.commitId ?? null;
     if (row && this.compareIndex >= 0 && this.compareIndex !== this.selected) {
       this.scheduleCompare(refresh);
       return;
