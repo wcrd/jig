@@ -267,6 +267,15 @@ pub fn rebase_args(
     Ok(args)
 }
 
+/// `args` with jj's global `--ignore-immutable` in front when `ignore` is
+/// set, so the command may rewrite commits jj otherwise protects.
+pub fn ignoring_immutable(ignore: bool, mut args: Vec<String>) -> Vec<String> {
+    if ignore {
+        args.insert(0, "--ignore-immutable".to_owned());
+    }
+    args
+}
+
 /// `jj rebase --source revision --onto p1 --onto p2 ...`: replaces the
 /// commit's parents, its descendants coming along.
 pub fn set_parents_args(revision: &str, parents: &[String]) -> Result<Vec<String>> {
@@ -696,6 +705,26 @@ mod tests {
             // An alias that shells out can run jj, whatever PATH the app got.
             let nested = run(&dir, &["util", "exec", "--", "sh", "-c", "jj --version"]).unwrap();
             assert!(nested.success, "{}", nested.stderr);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn ignoring_immutable_rewrites_protected_commits() {
+        assert_eq!(ignoring_immutable(false, v(&["abandon", "a1"])), v(&["abandon", "a1"]));
+        let dir = std::env::temp_dir().join(format!("jig-cli-immutable-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        if init_repo(&dir) {
+            assert!(run(&dir, &["new"]).unwrap().success);
+            let configs = vec!["revset-aliases.'immutable_heads()'='@-'".to_owned()];
+            let describe = |ignore| ignoring_immutable(ignore, v(&["describe", "--message=changed", "@-"]));
+            let refused = describe(false);
+            let refused = run_with_config(&dir, &configs, &refused.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+            assert!(!refused.success);
+            let forced = describe(true);
+            let forced = run_with_config(&dir, &configs, &forced.iter().map(String::as_str).collect::<Vec<_>>()).unwrap();
+            assert!(forced.success, "{}", forced.stderr);
+            assert_eq!(forced.command, "jj --ignore-immutable describe --message=changed @-");
         }
         let _ = std::fs::remove_dir_all(&dir);
     }

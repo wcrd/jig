@@ -62,6 +62,10 @@
       ],
     ],
     [
+      "Every mode",
+      [["⌥↩", "Run, rewriting immutable commits too"]],
+    ],
+    [
       "Repository",
       [
         ["u  ⇧U", "Undo / redo"],

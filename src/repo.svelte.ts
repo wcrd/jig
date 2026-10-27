@@ -821,17 +821,19 @@ export class Repo {
     return this.relations!.branch(p.sources, p.target);
   }
 
-  pendingProblem(): string | null {
+  /** Why the pending operation can't run yet; `ignoreImmutable` leaves out the immutable-commit checks, as ⌥↩ does. */
+  pendingProblem(ignoreImmutable = false): string | null {
     const p = this.pending!;
     const rows = this.log!.rows;
+    const immutable = (i: number) => !ignoreImmutable && rows[i].immutable;
     if (p.kind === "abandon") {
       if (p.marked.size === 0) return "Mark commits to abandon with Space";
-      if ([...p.marked].some((i) => rows[i].immutable)) return "Some marked commits are immutable";
+      if ([...p.marked].some(immutable)) return "Some marked commits are immutable";
       return null;
     }
     if (p.kind === "split") {
       const { selected, total } = this.details.splitCounts();
-      if (rows[p.source].immutable) return "This commit is immutable";
+      if (immutable(p.source)) return "This commit is immutable";
       if (total === 0) return "This commit has no changes to split";
       if (selected === 0) return "Tick the changes for the first commit";
       if (selected === total) return "Leave something for the second commit";
@@ -841,7 +843,7 @@ export class Repo {
     const moving = this.movingRows();
     if (p.kind === "parents") {
       const current = this.relations!.directParentsOf(p.source);
-      if (rows[p.source].immutable) return "This commit is immutable";
+      if (immutable(p.source)) return "This commit is immutable";
       if (current.length < rows[p.source].parentCount) return "Some parents aren't shown; widen the revset to change them";
       if (p.marked.length === 0) return "Mark at least one parent with Space";
       if (p.marked.some((i) => moving.has(i))) return "A parent can't be the commit or one of its descendants";
@@ -850,12 +852,12 @@ export class Repo {
     }
     if (p.kind === "squash") {
       if (p.sources.includes(p.target)) return "Pick another commit to squash into";
-      if (p.sources.some((i) => rows[i].immutable) || rows[p.target].immutable) return "Can't squash into or from an immutable commit";
+      if (p.sources.some(immutable) || immutable(p.target)) return "Can't squash into or from an immutable commit";
       return null;
     }
     if (p.kind !== "rebase") return null;
     if (moving.has(p.target)) return "Pick a destination outside the commits being moved";
-    if ([...moving].some((i) => rows[i].immutable)) return "Some of these commits are immutable";
+    if ([...moving].some(immutable)) return "Some of these commits are immutable";
     return null;
   }
 
@@ -894,7 +896,8 @@ export class Repo {
       return true;
     }
     if (event.key === "Enter") {
-      this.runPending();
+      // ⌥↩ runs it with --ignore-immutable, as in jjui.
+      this.runPending(event.altKey);
       return true;
     }
     if (event.key === "Escape") {
@@ -939,9 +942,9 @@ export class Repo {
     this.modeVersion++;
   }
 
-  async runPending() {
+  async runPending(ignoreImmutable = false) {
     const p = this.pending;
-    if (!p || this.pendingProblem()) return;
+    if (!p || this.pendingProblem(ignoreImmutable)) return;
     const rows = this.log!.rows;
     const short = (i: number) => rows[i].changeId.slice(0, 8);
     const several = (indexes: number[]) => (indexes.length === 1 ? short(indexes[0]) : `${indexes.length} commits`);
@@ -954,26 +957,26 @@ export class Repo {
     if (p.kind === "rebase") {
       await this.act(
         `Rebase ${several(p.sources)} ${p.placement} ${short(p.target)}`,
-        () => jj.rebase(this.path, commitIds(p.sources), p.mode, rows[p.target].commitId, p.placement),
+        () => jj.rebase(this.path, commitIds(p.sources), p.mode, rows[p.target].commitId, p.placement, ignoreImmutable),
         { undo: true },
       );
     } else if (p.kind === "duplicate" || p.kind === "revert") {
       const run = p.kind === "duplicate" ? jj.duplicateTo : jj.revert;
       await this.act(
         `${p.kind === "duplicate" ? "Copy" : "Revert"} ${several(p.sources)} ${p.placement} ${short(p.target)}`,
-        () => run(this.path, commitIds(p.sources), rows[p.target].commitId, p.placement),
+        () => run(this.path, commitIds(p.sources), rows[p.target].commitId, p.placement, ignoreImmutable),
         { undo: true },
       );
     } else if (p.kind === "parents") {
       await this.act(
         `Set parents of ${short(p.source)}`,
-        () => jj.setParents(this.path, rows[p.source].commitId, p.marked.map((i) => rows[i].commitId)),
+        () => jj.setParents(this.path, rows[p.source].commitId, p.marked.map((i) => rows[i].commitId), ignoreImmutable),
         { undo: true },
       );
     } else if (p.kind === "squash") {
       await this.act(
         `Squash ${several(p.sources)} into ${short(p.target)}`,
-        () => jj.squash(this.path, commitIds(p.sources), rows[p.target].commitId, p.paths),
+        () => jj.squash(this.path, commitIds(p.sources), rows[p.target].commitId, p.paths, ignoreImmutable),
         { undo: true },
       );
     } else if (p.kind === "split") {
@@ -981,7 +984,7 @@ export class Repo {
       this.details.endSplit();
       await this.act(
         `Split ${short(p.source)}`,
-        () => jj.split(this.path, rows[p.source].commitId, plan, p.message, p.secondMessage),
+        () => jj.split(this.path, rows[p.source].commitId, plan, p.message, p.secondMessage, ignoreImmutable),
         // A second message is a describe after the split: two operations.
         { undo: p.secondMessage === null ? 1 : 2 },
       );
@@ -989,7 +992,7 @@ export class Repo {
       const marked = [...p.marked].sort((a, b) => a - b);
       await this.act(
         `Abandon ${several(marked)}`,
-        () => jj.abandon(this.path, marked.map((i) => rows[i].commitId)),
+        () => jj.abandon(this.path, marked.map((i) => rows[i].commitId), ignoreImmutable),
         { undo: true },
       );
     }

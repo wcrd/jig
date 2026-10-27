@@ -112,34 +112,41 @@ export const jj = {
   snapshot: (path: string) => invoke<CommandOutput>("jj_snapshot", { path }),
   gitPush: (path: string, bookmark: string | null = null, remote: string | null = null) =>
     invoke<CommandOutput>("jj_git_push", { path, bookmark, remote }),
-  rebase: (path: string, revisions: string[], mode: string, target: string, placement: string) =>
-    invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement }),
+  rebase: (path: string, revisions: string[], mode: string, target: string, placement: string, ignoreImmutable = false) =>
+    invoke<CommandOutput>("jj_rebase", { path, revisions, mode, target, placement, ignoreImmutable }),
   newChange: (path: string, parents: string[]) => invoke<CommandOutput>("jj_new", { path, parents }),
   edit: (path: string, revision: string) => invoke<CommandOutput>("jj_edit", { path, revision }),
-  setParents: (path: string, revision: string, parents: string[]) =>
-    invoke<CommandOutput>("jj_set_parents", { path, revision, parents }),
-  abandon: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_abandon", { path, revisions }),
+  setParents: (path: string, revision: string, parents: string[], ignoreImmutable = false) =>
+    invoke<CommandOutput>("jj_set_parents", { path, revision, parents, ignoreImmutable }),
+  abandon: (path: string, revisions: string[], ignoreImmutable = false) =>
+    invoke<CommandOutput>("jj_abandon", { path, revisions, ignoreImmutable }),
   /** Describes the working copy and starts a new change on top. */
   commit: (path: string, message: string) => invoke<CommandOutput>("jj_commit", { path, message }),
   describe: (path: string, revision: string, message: string) =>
     invoke<CommandOutput>("jj_describe", { path, revision, message }),
   duplicate: (path: string, revisions: string[]) => invoke<CommandOutput>("jj_duplicate", { path, revisions }),
   absorb: (path: string, revision: string) => invoke<CommandOutput>("jj_absorb", { path, revision }),
-  squash: (path: string, revisions: string[], into: string, paths: string[] = []) =>
-    invoke<CommandOutput>("jj_squash", { path, revisions, into, paths }),
+  squash: (path: string, revisions: string[], into: string, paths: string[] = [], ignoreImmutable = false) =>
+    invoke<CommandOutput>("jj_squash", { path, revisions, into, paths, ignoreImmutable }),
   /** `secondMessage` describes the remaining changes' commit, as a second operation. */
-  split: (path: string, revision: string, plan: SplitPlan, message: string | null, secondMessage: string | null) =>
-    invoke<CommandOutput>("jj_split", { path, revision, plan, message, secondMessage }),
+  split: (
+    path: string,
+    revision: string,
+    plan: SplitPlan,
+    message: string | null,
+    secondMessage: string | null,
+    ignoreImmutable = false,
+  ) => invoke<CommandOutput>("jj_split", { path, revision, plan, message, secondMessage, ignoreImmutable }),
   opRestore: (path: string, opId: string) => invoke<CommandOutput>("jj_op_restore", { path, opId }),
   opRevert: (path: string, opId: string) => invoke<CommandOutput>("jj_op_revert", { path, opId }),
   resolve: (path: string, revision: string, filePath: string, content: string) =>
     invoke<CommandOutput>("jj_resolve", { path, revision, filePath, content }),
   resolveSide: (path: string, revision: string, filePath: string, side: "ours" | "theirs") =>
     invoke<CommandOutput>("jj_resolve_side", { path, revision, filePath, side }),
-  duplicateTo: (path: string, revisions: string[], target: string, placement: string) =>
-    invoke<CommandOutput>("jj_duplicate_to", { path, revisions, target, placement }),
-  revert: (path: string, revisions: string[], target: string, placement: string) =>
-    invoke<CommandOutput>("jj_revert", { path, revisions, target, placement }),
+  duplicateTo: (path: string, revisions: string[], target: string, placement: string, ignoreImmutable = false) =>
+    invoke<CommandOutput>("jj_duplicate_to", { path, revisions, target, placement, ignoreImmutable }),
+  revert: (path: string, revisions: string[], target: string, placement: string, ignoreImmutable = false) =>
+    invoke<CommandOutput>("jj_revert", { path, revisions, target, placement, ignoreImmutable }),
   /** A command line typed by the user; `$change_id` / `$commit_id` stand for the selected commit. */
   exec: (path: string, line: string, changeId: string | null, commitId: string | null) =>
     invoke<CommandOutput>("jj_exec", { path, line, changeId, commitId }),

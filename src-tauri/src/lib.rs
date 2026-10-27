@@ -537,16 +537,27 @@ async fn jj_rebase(
     mode: String,
     target: String,
     placement: String,
+    ignore_immutable: bool,
 ) -> Result<jj_cli::CommandOutput, String> {
     jj_in(path, move || {
-        jj_cli::rebase_args(&revisions, &mode, &target, &placement)
+        let args = jj_cli::rebase_args(&revisions, &mode, &target, &placement)?;
+        Ok(jj_cli::ignoring_immutable(ignore_immutable, args))
     })
     .await
 }
 
 #[tauri::command]
-async fn jj_set_parents(path: String, revision: String, parents: Vec<String>) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || jj_cli::set_parents_args(&revision, &parents)).await
+async fn jj_set_parents(
+    path: String,
+    revision: String,
+    parents: Vec<String>,
+    ignore_immutable: bool,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        let args = jj_cli::set_parents_args(&revision, &parents)?;
+        Ok(jj_cli::ignoring_immutable(ignore_immutable, args))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -570,8 +581,16 @@ async fn jj_edit(path: String, revision: String) -> Result<jj_cli::CommandOutput
 }
 
 #[tauri::command]
-async fn jj_abandon(path: String, revisions: Vec<String>) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || jj_cli::revisions_args("abandon", &revisions)).await
+async fn jj_abandon(
+    path: String,
+    revisions: Vec<String>,
+    ignore_immutable: bool,
+) -> Result<jj_cli::CommandOutput, String> {
+    jj_in(path, move || {
+        let args = jj_cli::revisions_args("abandon", &revisions)?;
+        Ok(jj_cli::ignoring_immutable(ignore_immutable, args))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -603,8 +622,13 @@ async fn jj_duplicate_to(
     revisions: Vec<String>,
     target: String,
     placement: String,
+    ignore_immutable: bool,
 ) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || jj_cli::placed_args("duplicate", &revisions, &target, &placement)).await
+    jj_in(path, move || {
+        let args = jj_cli::placed_args("duplicate", &revisions, &target, &placement)?;
+        Ok(jj_cli::ignoring_immutable(ignore_immutable, args))
+    })
+    .await
 }
 
 /// A new commit undoing others' changes, placed onto, after or before a commit.
@@ -614,8 +638,13 @@ async fn jj_revert(
     revisions: Vec<String>,
     target: String,
     placement: String,
+    ignore_immutable: bool,
 ) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || jj_cli::placed_args("revert", &revisions, &target, &placement)).await
+    jj_in(path, move || {
+        let args = jj_cli::placed_args("revert", &revisions, &target, &placement)?;
+        Ok(jj_cli::ignoring_immutable(ignore_immutable, args))
+    })
+    .await
 }
 
 #[tauri::command]
@@ -629,8 +658,13 @@ async fn jj_squash(
     revisions: Vec<String>,
     into: String,
     paths: Vec<String>,
+    ignore_immutable: bool,
 ) -> Result<jj_cli::CommandOutput, String> {
-    jj_in(path, move || jj_cli::squash_args(&revisions, &into, &paths)).await
+    jj_in(path, move || {
+        let args = jj_cli::squash_args(&revisions, &into, &paths)?;
+        Ok(jj_cli::ignoring_immutable(ignore_immutable, args))
+    })
+    .await
 }
 
 /// Runs a command line typed by the user (`:`), so their aliases work too.
@@ -719,6 +753,7 @@ async fn jj_split(
     plan: split_tool::SplitPlan,
     message: Option<String>,
     second_message: Option<String>,
+    ignore_immutable: bool,
 ) -> Result<jj_cli::CommandOutput, String> {
     blocking(move || {
         let root = repo::find_workspace_root(&PathBuf::from(&path))
@@ -746,6 +781,7 @@ async fn jj_split(
         let (configs, args) =
             jj_cli::split_args(&revision, message.as_deref(), &program, &plan_path)?;
         std::fs::write(&plan_path, serde_json::to_vec(&plan)?)?;
+        let args = jj_cli::ignoring_immutable(ignore_immutable, args);
         let args: Vec<&str> = args.iter().map(String::as_str).collect();
         let result = jj_cli::run_with_config(&root, &configs, &args);
         let _ = std::fs::remove_file(&plan_path);
@@ -755,6 +791,7 @@ async fn jj_split(
         }
         if let (Some(change_id), Some(second)) = (change_id, second_message) {
             let args = jj_cli::describe_split_remainder_args(&change_id, &second)?;
+            let args = jj_cli::ignoring_immutable(ignore_immutable, args);
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             combined.append(jj_cli::run(&root, &args)?);
         }

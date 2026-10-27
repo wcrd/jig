@@ -7,16 +7,21 @@
 
   let { repo }: { repo: Repo } = $props();
 
+  const RUN_LABELS = { rebase: "Rebase", duplicate: "Copy", revert: "Revert", squash: "Squash", split: "Split", parents: "Set Parents", abandon: "Abandon" };
+
   // The operation changes in place, so this takes a fresh copy of it, and
   // what's worked out from it, each time Repo says it changed.
   const mode = $derived.by(() => {
     void repo.modeVersion;
     const p = repo.pending;
     if (!p || !repo.log) return null;
+    const problem = repo.pendingProblem();
     return {
       p: { ...p },
       rows: repo.log.rows,
-      problem: repo.pendingProblem(),
+      problem,
+      // Only immutable commits stand in the way, which ⌥↩ overrides.
+      forcible: !!problem && !repo.pendingProblem(true),
       moving: p.kind === "rebase" ? repo.movingRows().size : 0,
       split: p.kind === "split" ? repo.details.splitCounts() : null,
     };
@@ -80,6 +85,9 @@
       <span class="modebar-title">Abandon</span><span>{p.marked.size} {p.marked.size === 1 ? "commit" : "commits"} marked</span>
     {/if}
     {#if mode.problem}<span class="modebar-problem">{mode.problem}</span>{/if}
+    {#if mode.forcible}<button class="modebar-button" data-action="force" title="⌥↩ · runs with --ignore-immutable" onclick={() => repo.runPending(true)}
+        >{RUN_LABELS[p.kind]} Anyway</button
+      >{/if}
     <span class="modebar-actions"
       ><span class="muted"
         >{p.kind === "rebase" || p.kind === "duplicate" || p.kind === "revert" || p.kind === "squash"
@@ -90,7 +98,7 @@
               ? "Space mark · Enter · Esc"
               : "Space mark · s descendants · Enter · Esc"}</span
       ><button data-action="cancel" onclick={() => repo.cancelPending()}>Cancel</button><button data-action="run" class="primary" disabled={!!mode.problem} onclick={() => repo.runPending()}
-        >{{ rebase: "Rebase", duplicate: "Copy", revert: "Revert", squash: "Squash", split: "Split", parents: "Set Parents", abandon: "Abandon" }[p.kind]}</button
+        >{RUN_LABELS[p.kind]}</button
       ></span
     >
   {/if}
