@@ -20,6 +20,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
     let about = AboutMetadata {
         name: Some(info.name.clone()),
         version: Some(info.version.to_string()),
+        copyright: Some("By wcrd".into()),
         ..Default::default()
     };
 
