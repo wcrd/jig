@@ -9,8 +9,8 @@ Inspired by `jjui` and `Fork (git)`.
 ### Why Jig
 
 For 90% of my `jj` workflows `jjui` is my go to tool. But there are two things that it doesn't do for me:
-1. Sometimes when I'm working on multiple workspaces / branches I just need to ***see*** the graph visually and interactively
-2. I still suck at resolving conflicts; this tool provides a nice merge gui
+1. Sometimes when I'm working on multiple workspaces / branches I just need to ***see*** the full graph visually and interactively
+2. I still suck at resolving conflicts; this tool provides a nice conflict resolution GUI
 
 While I built this for the 2 reasons above, `jig` also supports most of the other `jj` operations and uses the same keybindings as `jjui`.
 
@@ -37,9 +37,17 @@ While I built this for the 2 reasons above, `jig` also supports most of the othe
 
 ![Operation log](docs/screenshots/oplog.png)
 
-## Install
+### Full-size diff
 
-Download the `.dmg` from the [latest release](../../releases/latest) and drag Jig to Applications. Jig runs repository changes through your `jj`, so it needs `jj` 0.40 on your `PATH`.
+Press `d` on the Changes tab to fill the window with the diff. `↑` / `↓` step through files, `j` / `k` through commits, and `Esc` goes back.
+
+![Full-size diff](docs/screenshots/diff.png)
+
+## Install
+Jig runs repository changes through your `jj`, so it needs `jj` 0.40 on your `PATH`.
+
+### macOS
+Download the `.dmg` from the [latest release](../../releases/latest) and drag Jig to Applications. 
 
 Jig isn't notarized yet, so macOS will refuse to open it the first time. Clear the quarantine flag with:
 
@@ -53,4 +61,5 @@ To open a repo from a terminal, or into a Jig that's already running, run the fo
 open . -a Jig
 ```
 
-To build from source for other systems, see [DEVELOPMENT.md](DEVELOPMENT.md).
+### Other systems
+To build from source for macOS and other systems, see [DEVELOPMENT.md](DEVELOPMENT.md).
