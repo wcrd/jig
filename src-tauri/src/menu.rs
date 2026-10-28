@@ -29,6 +29,7 @@ pub fn build<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<Menu<R>> {
         true,
         &[
             &PredefinedMenuItem::about(app, None, Some(about))?,
+            &item("check-for-updates", "Check for Updates…", None)?,
             &separator()?,
             &item("settings", "Settings…", Some("CmdOrCtrl+,"))?,
             &separator()?,

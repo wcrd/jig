@@ -9,6 +9,7 @@ import { fetchInitialRepo, isTauri, openFolder, storage } from "./api";
 import { Repo } from "./repo.svelte";
 import { showSettings } from "./settings";
 import { type MenuEntry, copy, dismissToasts, notify, showHelp, showMenu } from "./ui";
+import { checkForUpdates } from "./updates";
 import {
   type Bounds,
   type TabDrop,
@@ -465,6 +466,7 @@ const MENU_COMMANDS: Record<string, () => void> = {
   "close-tab": () => active && closeTab(active),
   "close-window": closeWindow,
   settings: showSettings,
+  "check-for-updates": checkForUpdates,
   find: () => active?.find(),
   reload: () => active?.load({ keepPosition: true }),
   "next-tab": () => cycleTab(1),
