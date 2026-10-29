@@ -205,9 +205,15 @@ export function fetchConflictHunks(path: string, commitId: string, filePath: str
   return invoke<ConflictFile>("conflict_hunks", { path, commitId, filePath });
 }
 
-/** Opens a folder in Finder, or in Terminal. */
-export function openFolder(path: string, app: "Terminal" | null = null): Promise<void> {
+/** Opens a folder in Finder, or in a terminal app from `fetchTerminals`. */
+export function openFolder(path: string, app: string | null = null): Promise<void> {
   return invoke("open_folder", { path, app });
+}
+
+/** The terminal apps folders can be opened in that are installed. */
+export function fetchTerminals(): Promise<string[]> {
+  if (isTauri) return invoke<string[]>("installed_terminals");
+  return Promise.resolve(["Terminal", "Ghostty", "iTerm"]);
 }
 
 /** Opens an http(s) URL in the default browser. */

@@ -2,7 +2,7 @@
 // Each tab owns a Repo, so switching tabs keeps scroll position, selection
 // and everything else. The graph's rows are drawn here, only those in view.
 
-import { openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
+import { openFolder, openUrl, fetchCompare, fetchConflictHunks, fetchDiff, fetchFileDiff, fetchFileText, fetchHeadOpId, fetchLandedLeftovers, fetchLog, fetchTreeFiles, isTauri, jj, storage } from "./api";
 import type Resolve from "./components/Resolve.svelte";
 import type OpLog from "./components/OpLog.svelte";
 import { DetailsPanel } from "./details.svelte";
@@ -10,7 +10,7 @@ import { Graph, ROW_HEIGHT } from "./graph";
 import { Relations } from "./relations";
 import { SearchBar, type SearchTarget } from "./search.svelte";
 import { renderRow } from "./rows";
-import { refreshScope } from "./settings";
+import { refreshScope, terminalApp } from "./settings";
 import { type SidebarItem, workspaceItem } from "./sidebar";
 import { remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
@@ -1752,7 +1752,13 @@ export class Repo {
         { text: "Add Workspace…", action: () => this.addWorkspace(null) },
         "separator",
       );
-      if (item.path) entries.push({ text: "Copy Path", action: () => copy(item.path!) });
+      if (item.path) {
+        entries.push(
+          { text: "Open in Finder", action: () => openFolder(item.path!).catch((err) => notify(String(err))) },
+          { text: `Open in ${terminalApp()}`, action: () => openFolder(item.path!, terminalApp()).catch((err) => notify(String(err))) },
+          { text: "Copy Path", action: () => copy(item.path!) },
+        );
+      }
     }
     if (item.commitId) entries.push({ text: "Show in Graph", action: () => this.selectCommit(item.commitId, item.name) });
     entries.push({ text: "Copy Name", action: () => copy(item.remote ? `${item.name}@${item.remote}` : item.name) });

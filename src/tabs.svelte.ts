@@ -7,7 +7,7 @@ import { flushSync } from "svelte";
 
 import { fetchInitialRepo, isTauri, openFolder, storage } from "./api";
 import { Repo } from "./repo.svelte";
-import { showSettings } from "./settings";
+import { showSettings, terminalApp } from "./settings";
 import { type MenuEntry, copy, dismissToasts, notify, showHelp, showMenu } from "./ui";
 import { checkForUpdates } from "./updates";
 import {
@@ -399,7 +399,7 @@ export function tabMenu(event: MouseEvent) {
   const view = views[Number(tab.dataset.index)];
   const entries: MenuEntry[] = [
     { text: "Open in Finder", action: () => openFolder(view.path).catch((err) => notify(String(err))) },
-    { text: "Open in Terminal", action: () => openFolder(view.path, "Terminal").catch((err) => notify(String(err))) },
+    { text: `Open in ${terminalApp()}`, action: () => openFolder(view.path, terminalApp()).catch((err) => notify(String(err))) },
     { text: "Copy Path", action: () => copy(view.path) },
     "separator",
     {

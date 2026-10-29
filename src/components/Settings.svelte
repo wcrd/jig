@@ -1,8 +1,8 @@
-<!-- Settings: the theme, graph dates and colours, what Refresh snapshots, and how long toasts stay. -->
+<!-- Settings: the theme, graph dates and colours, what Refresh snapshots, the terminal app, and how long toasts stay. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
-  import { storage } from "../api";
+  import { fetchTerminals, storage } from "../api";
   import {
     GRAPH_DATES,
     PALETTES,
@@ -17,7 +17,9 @@
     savedTheme,
     setGraphDate,
     setRefreshScope,
+    setTerminalApp,
     setToastSeconds,
+    terminalApp,
     toastSeconds,
   } from "../settings";
 
@@ -28,6 +30,10 @@
   let date = $state(graphDate());
   let seconds = $state(toastSeconds());
   let scope = $state(refreshScope());
+  let terminal = $state(terminalApp());
+  // Shown once there's a choice: Terminal is always installed.
+  let terminals: string[] = $state([]);
+  fetchTerminals().then((apps) => (terminals = apps)).catch(() => {});
   const current = palette(storage("palette")).id;
 
   onMount(() => dialog.showModal());
@@ -59,6 +65,14 @@
       <button data-refresh-scope={id} class={{ on: id === scope }} onclick={() => setRefreshScope((scope = id))}>{name}</button>
     {/each}
   </div>
+  {#if terminals.length > 1}
+    <div class="list-section">Default terminal</div>
+    <select class="settings-select" data-terminal bind:value={terminal} onchange={() => setTerminalApp(terminal)}>
+      {#each terminals as app (app)}
+        <option value={app}>{app}</option>
+      {/each}
+    </select>
+  {/if}
   <div class="list-section">Toasts stay for</div>
   <div class="theme-options toast-time-options">
     {#each TOAST_SECONDS as s (s)}

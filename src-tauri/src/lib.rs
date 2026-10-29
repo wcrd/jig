@@ -273,7 +273,28 @@ async fn jj_replace_landed(path: String) -> Result<jj_cli::CommandOutput, String
     .await
 }
 
-/// Opens a repo's folder in Finder, or in Terminal.
+/// Terminal apps that open a window in a folder handed to them, by app name.
+const TERMINALS: &[&str] = &["Terminal", "Ghostty", "iTerm"];
+
+/// The terminal apps in `TERMINALS` that are installed, in that order.
+#[tauri::command]
+fn installed_terminals() -> Vec<String> {
+    let mut dirs = vec![
+        PathBuf::from("/System/Applications/Utilities"),
+        PathBuf::from("/Applications"),
+        PathBuf::from("/Applications/Utilities"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        dirs.push(PathBuf::from(home).join("Applications"));
+    }
+    TERMINALS
+        .iter()
+        .filter(|name| dirs.iter().any(|dir| dir.join(format!("{name}.app")).exists()))
+        .map(|name| (*name).to_owned())
+        .collect()
+}
+
+/// Opens a repo's folder in Finder, or in one of `TERMINALS`.
 #[tauri::command]
 fn open_folder(path: String, app: Option<String>) -> Result<(), String> {
     if !std::path::Path::new(&path).is_dir() {
@@ -282,8 +303,8 @@ fn open_folder(path: String, app: Option<String>) -> Result<(), String> {
     let mut command = std::process::Command::new("open");
     match app.as_deref() {
         None => {}
-        Some("Terminal") => {
-            command.args(["-a", "Terminal"]);
+        Some(app) if TERMINALS.contains(&app) => {
+            command.args(["-a", app]);
         }
         Some(other) => return Err(format!("can't open folders in {other}")),
     }
@@ -921,6 +942,7 @@ pub fn run() {
             jj_snapshot,
             open_url,
             open_folder,
+            installed_terminals,
             landed_leftovers,
             jj_replace_landed,
             jj_git_push,

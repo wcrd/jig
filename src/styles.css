@@ -3018,6 +3018,17 @@ dialog.prompt.settings .list-section {
   box-shadow: 0 0 0 1px var(--border);
 }
 
+.settings-select {
+  display: block;
+  width: 100%;
+  margin: 6px 0 14px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--toolbar-bg);
+  outline: none;
+}
+
 .palette-options {
   display: grid;
   gap: 6px;

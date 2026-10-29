@@ -1,5 +1,6 @@
 // App settings: the theme, the graph's lane palette and dates, which
-// workspaces Refresh snapshots, and how long toasts stay. The theme is the
+// workspaces Refresh snapshots, the terminal app, and how long toasts stay.
+// The theme is the
 // `data-theme` attribute on <html>, which the stylesheet keys off. Palettes
 // are written into a style element as --lane-N, so switching either recolours
 // the graph without a re-render.
@@ -145,6 +146,15 @@ export function refreshScope(): RefreshScope {
 
 export function setRefreshScope(scope: RefreshScope) {
   storage("refreshScope", scope === "this" ? null : scope);
+}
+
+/** The app Open in Terminal uses: one that `fetchTerminals` lists. */
+export function terminalApp(): string {
+  return storage("terminal") ?? "Terminal";
+}
+
+export function setTerminalApp(app: string) {
+  storage("terminal", app === "Terminal" ? null : app);
 }
 
 export const TOAST_SECONDS = [3, 5, 8, 15];
