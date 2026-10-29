@@ -1,4 +1,4 @@
-<!-- Settings: the theme, graph dates and colours, and how long toasts stay. -->
+<!-- Settings: the theme, graph dates and colours, what Refresh snapshots, and how long toasts stay. -->
 <script lang="ts">
   import { onMount } from "svelte";
 
@@ -6,14 +6,17 @@
   import {
     GRAPH_DATES,
     PALETTES,
+    REFRESH_SCOPES,
     THEMES,
     TOAST_SECONDS,
     applyPalette,
     applyTheme,
     graphDate,
     palette,
+    refreshScope,
     savedTheme,
     setGraphDate,
+    setRefreshScope,
     setToastSeconds,
     toastSeconds,
   } from "../settings";
@@ -24,6 +27,7 @@
   let theme = $state(savedTheme());
   let date = $state(graphDate());
   let seconds = $state(toastSeconds());
+  let scope = $state(refreshScope());
   const current = palette(storage("palette")).id;
 
   onMount(() => dialog.showModal());
@@ -47,6 +51,12 @@
   <div class="theme-options graph-date-options">
     {#each GRAPH_DATES as [id, name] (id)}
       <button data-graph-date={id} class={{ on: id === date }} onclick={() => setGraphDate((date = id))}>{name}</button>
+    {/each}
+  </div>
+  <div class="list-section">Refresh snapshots</div>
+  <div class="theme-options refresh-scope-options">
+    {#each REFRESH_SCOPES as [id, name] (id)}
+      <button data-refresh-scope={id} class={{ on: id === scope }} onclick={() => setRefreshScope((scope = id))}>{name}</button>
     {/each}
   </div>
   <div class="list-section">Toasts stay for</div>

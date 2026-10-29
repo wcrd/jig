@@ -10,11 +10,13 @@ import type { LogRow, RefLabel } from "./types";
 const CLOUD_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M4.5 12.5h7a3 3 0 0 0 .4-6 4 4 0 0 0-7.7.9A2.6 2.6 0 0 0 4.5 12.5z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`;
 const TAG_ICON = `<svg viewBox="0 0 16 16" width="11" height="11"><path d="M2.5 2.5h5.2l6 6-5.2 5.2-6-6zM5.3 5.3h.01" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
 
-function pill(label: string, opts: { icon?: string; color?: string; kind: string; title?: string }): string {
+/** `workspace`: another workspace's name, which right-clicking the pill looks up. */
+function pill(label: string, opts: { icon?: string; color?: string; kind: string; title?: string; workspace?: string }): string {
   const style = opts.color ? ` style="--pill: ${opts.color}"` : "";
   const title = opts.title ? ` title="${escapeHtml(opts.title)}"` : "";
+  const workspace = opts.workspace !== undefined ? ` data-workspace="${escapeHtml(opts.workspace)}"` : "";
   const tile = opts.icon ? `<span class="tile">${opts.icon}</span>` : "";
-  return `<span class="pill ${opts.kind}"${style}${title}>${tile}<span class="label">${label}</span></span>`;
+  return `<span class="pill ${opts.kind}"${style}${title}${workspace}>${tile}<span class="label">${label}</span></span>`;
 }
 
 function refPill(ref: RefLabel, color: string): string {
@@ -70,7 +72,7 @@ export function renderRow(el: HTMLElement, row: LogRow, index: number, graph: Gr
   let pills = "";
   if (row.isWorkingCopy) pills += pill("@", { kind: "workspace current", color, title: "Working copy" });
   for (const name of row.workspaces) {
-    pills += pill(`${escapeHtml(name)}@`, { kind: "workspace", title: `Working copy of workspace ${name}` });
+    pills += pill(`${escapeHtml(name)}@`, { kind: "workspace", title: `Working copy of workspace ${name}`, workspace: name });
   }
   for (const ref of row.refs) pills += refPill(ref, color);
 

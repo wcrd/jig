@@ -1,5 +1,5 @@
-// App settings: the theme, the graph's lane palette and dates, and how long
-// toasts stay. The theme is the
+// App settings: the theme, the graph's lane palette and dates, which
+// workspaces Refresh snapshots, and how long toasts stay. The theme is the
 // `data-theme` attribute on <html>, which the stylesheet keys off. Palettes
 // are written into a style element as --lane-N, so switching either recolours
 // the graph without a re-render.
@@ -129,6 +129,22 @@ export function setGraphDate(choice: GraphDate) {
   graphDateChoice = choice;
   storage("graphDate", choice === "changed" ? null : choice);
   window.dispatchEvent(new Event("graph-date-change"));
+}
+
+export type RefreshScope = "this" | "all";
+
+export const REFRESH_SCOPES: [RefreshScope, string][] = [
+  ["this", "This workspace"],
+  ["all", "All workspaces"],
+];
+
+/** Which workspaces Refresh snapshots: "all" picks up edits agents made in the others. */
+export function refreshScope(): RefreshScope {
+  return storage("refreshScope") === "all" ? "all" : "this";
+}
+
+export function setRefreshScope(scope: RefreshScope) {
+  storage("refreshScope", scope === "this" ? null : scope);
 }
 
 export const TOAST_SECONDS = [3, 5, 8, 15];

@@ -10,7 +10,8 @@ import { Graph, ROW_HEIGHT } from "./graph";
 import { Relations } from "./relations";
 import { SearchBar, type SearchTarget } from "./search.svelte";
 import { renderRow } from "./rows";
-import type { SidebarItem } from "./sidebar";
+import { refreshScope } from "./settings";
+import { type SidebarItem, workspaceItem } from "./sidebar";
 import { remoteWebUrl } from "./format";
 import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
@@ -299,7 +300,13 @@ export class Repo {
         this.select(index, false);
         this.scheduleDetails();
       }
-      this.commitMenu(index, previous);
+      // A workspace's marker gets that workspace's menu, as in the sidebar;
+      // `@` (no name) is this tab's own.
+      const marker = (event.target as HTMLElement).closest<HTMLElement>(".pill.workspace");
+      const name = marker?.dataset.workspace;
+      const workspace = marker && this.log?.sidebar.workspaces.find((w) => (name === undefined ? w.current : w.name === name));
+      if (workspace) this.sidebarMenu(workspaceItem(workspace));
+      else this.commitMenu(index, previous);
     });
     this.splitter(this.ref("split-sidebar"), this.ref("sidebar"), "columns", "sidebarWidth", 160, 0.4);
     this.splitter(this.ref("split-details"), this.ref("details"), "rows", "detailsHeight", 120, 0.85);
@@ -310,9 +317,21 @@ export class Repo {
    * Reloads after importing git refs, so tags and branches changed with the
    * git CLI show up. Fails quietly in repos without a git backend.
    */
+  /**
+   * Imports git refs, which snapshots this working copy. With the setting
+   * for all workspaces it snapshots the others too, so edits made there, such
+   * as by agents, show up; one at a time, so they don't make concurrent
+   * operations.
+   */
   async refresh() {
     this.status = "Loading…";
     await jj.gitImport(this.path).catch(() => {});
+    if (refreshScope() === "all") {
+      for (const { current, path } of this.log?.sidebar.workspaces ?? []) {
+        // A stale workspace fails to snapshot; it catches up when it's next used.
+        if (!current && path) await jj.snapshot(path).catch(() => {});
+      }
+    }
     await this.load({ keepPosition: true });
   }
 
@@ -1720,7 +1739,12 @@ export class Repo {
     } else if (item.kind === "workspace") {
       // This tab's own workspace can't be forgotten or deleted from here.
       const current = !!item.tracked;
+      // Refreshing another workspace snapshots it, showing edits made there.
+      const refresh = current
+        ? () => this.refresh()
+        : () => this.act(`Refresh ${item.name}`, () => jj.snapshot(item.path!));
       entries.push(
+        { text: "Refresh", enabled: !!item.path, action: refresh },
         { text: "Open in New Tab", enabled: !current && !!item.path, action: () => this.onOpen(item.path!) },
         { text: `Forget “${item.name}”…`, enabled: !current, action: () => this.forgetWorkspace(item.name) },
         { text: `Delete “${item.name}”…`, enabled: !current, action: () => this.deleteWorkspace(item.name, item.path ?? null) },

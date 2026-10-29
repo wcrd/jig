@@ -50,6 +50,11 @@ export interface SidebarView {
   collapsedFolders: Set<string>;
 }
 
+/** A workspace as an entry, for the sidebar and its menu. */
+export function workspaceItem(w: SidebarData["workspaces"][number]): SidebarItem {
+  return { kind: "workspace", name: w.name, commitId: w.commitId, tracked: w.current, path: w.path };
+}
+
 export function sidebarSections(data: SidebarData, view: SidebarView): SidebarSection[] {
   const { filter, flat, collapsedSections, collapsedFolders } = view;
   let index = 0;
@@ -81,9 +86,7 @@ export function sidebarSections(data: SidebarData, view: SidebarView): SidebarSe
     sections.push({ id, title, count, open, rows: open ? body() : [] });
   };
 
-  const workspaces: SidebarItem[] = data.workspaces
-    .filter((w) => matches(w.name))
-    .map((w) => ({ kind: "workspace", name: w.name, commitId: w.commitId, tracked: w.current, path: w.path }));
+  const workspaces: SidebarItem[] = data.workspaces.filter((w) => matches(w.name)).map(workspaceItem);
   const bookmarks: SidebarItem[] = data.bookmarks
     .filter((b) => b.commitId && matches(b.name))
     .map((b) => ({ kind: "bookmark", name: b.name, commitId: b.commitId, bookmark: b }));
