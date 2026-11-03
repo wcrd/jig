@@ -886,9 +886,12 @@ export class Repo {
     const rows = this.log!.rows;
     const page = Math.max(1, Math.floor(this.scroller.clientHeight / ROW_HEIGHT) - 1);
     const move = (to: number) => {
-      // Splitting keeps the commit fixed; the arrows step through its files.
-      if (p.kind === "split") this.details.moveFile(Math.sign(to - this.selected) as 1 | -1);
-      else if (p.kind === "abandon" || p.kind === "parents") this.select(to);
+      // Splitting keeps the commit fixed; the arrows step through its files,
+      // or the hunks or lines of the one stepped into.
+      if (p.kind === "split") {
+        const delta = Math.sign(to - this.selected) as 1 | -1;
+        if (!this.details.splitStep(delta)) this.details.moveFile(delta);
+      } else if (p.kind === "abandon" || p.kind === "parents") this.select(to);
       else this.setTarget(to);
     };
     const current = "target" in p ? p.target : this.selected;
@@ -906,8 +909,15 @@ export class Repo {
       move(moves[event.key]);
       return true;
     }
-    if (p.kind === "split" && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-      if (this.details.folderKey(event.key === "ArrowRight")) return true;
+    if (p.kind === "split" && event.key === "ArrowRight") {
+      if (this.details.folderKey(true) || this.details.splitStepIn()) return true;
+    }
+    if (p.kind === "split" && event.key === "ArrowLeft") {
+      if (this.details.splitStepOut() || this.details.folderKey(false)) return true;
+    }
+    if (p.kind === "split" && event.key === " ") {
+      this.details.splitToggle(event.shiftKey);
+      return true;
     }
     if (event.key === "@" && p.kind !== "split") {
       const wc = rows.findIndex((r) => r.isWorkingCopy);

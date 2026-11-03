@@ -84,7 +84,7 @@ export function diffLines(
   newHighlight: Segment[][] | null,
   /** In split mode, what's ticked for the first commit. */
   split: SplitTicks | null = null,
-): LineSet | { placeholder: string } {
+): (LineSet & { cursorRows?: [number, number] }) | { placeholder: string } {
   if (file.binary) return { placeholder: "Binary file not shown" };
   if (file.omitted) return { placeholder: "Diff too large to show" };
   if (file.hunks.length === 0) {
@@ -96,6 +96,14 @@ export function diffLines(
   const hunkSegments = language ? hunkHighlights(file, language) : null;
   const rows: string[] = [];
   let maxChars = 0;
+  // The rows under the split cursor, to keep them in view.
+  let cursorRows: [number, number] | undefined;
+  const atCursor = (g: number, i: number | null) => {
+    const cursor = split?.cursor;
+    if (!cursor || cursor.hunk !== g || (cursor.line !== null && cursor.line !== i)) return false;
+    cursorRows = [cursorRows?.[0] ?? rows.length, rows.length];
+    return true;
+  };
   const context = (from: number, count: number, gap: Gap) => {
     if (!lines || count <= 0) return;
     for (let n = from; n < from + count; n++) maxChars = Math.max(maxChars, displayLength(lines[n - 1] ?? ""));
@@ -128,7 +136,8 @@ export function diffLines(
     // Splitting needs a header with a checkbox on every hunk.
     const check = split && hunk ? hunkCheck(g, split.hunk(g)) : "";
     if (hidden > 0 || (g === 0 && size === 0) || check) {
-      rows.push(gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : "", check));
+      const cursor = !!check && atCursor(g, null);
+      rows.push(gapRow(g, hidden, g === 0, g === last, hunk ? hunkHeader(hunk) : "", check, cursor));
     }
     context(gap.to - bottom + 1, bottom, gap);
 
@@ -140,16 +149,17 @@ export function diffLines(
         const left = line.kind === "+" ? "" : String(oldNo++);
         const right = line.kind === "-" ? "" : String(newNo++);
         maxChars = Math.max(maxChars, displayLength(line.tokens.map(([, t]) => t).join("")));
+        const cursor = !!split && atCursor(g, i);
         if (split && line.kind !== " ") {
           const on = split.line(g, i);
-          rows.push(lineHtml(line, left, right, segments, lineCheck(g, i, on), !on));
+          rows.push(lineHtml(line, left, right, segments, lineCheck(g, i, on), !on, cursor));
         } else {
-          rows.push(lineHtml(line, left, right, segments));
+          rows.push(lineHtml(line, left, right, segments, "", false, cursor));
         }
       });
     }
   });
-  return { rows, maxChars: Math.max(maxChars, 60), gutter: DIFF_GUTTER };
+  return { rows, maxChars: Math.max(maxChars, 60), gutter: DIFF_GUTTER, cursorRows };
 }
 
 function hunkHeader(hunk: { oldStart: number; oldCount: number; newStart: number; newCount: number }) {
@@ -164,6 +174,8 @@ export interface SplitTicks {
   hunk(hunk: number): "none" | "some" | "all";
   /** Whether line `line` (an index into the hunk's lines) is ticked. */
   line(hunk: number, line: number): boolean;
+  /** Where Space ticks, if it's inside the file: a whole hunk, or one of its lines. */
+  cursor: { hunk: number; line: number | null } | null;
 }
 
 function hunkCheck(hunk: number, state: "none" | "some" | "all"): string {
@@ -175,7 +187,7 @@ function lineCheck(hunk: number, line: number, checked: boolean): string {
   return `<span class="check line-check${checked ? " on" : ""}" data-line-check="${hunk}:${line}" title="Include this line in the first commit (shift-click for a range)"></span>`;
 }
 
-function gapRow(g: number, hidden: number, first: boolean, last: boolean, header: string, check = ""): string {
+function gapRow(g: number, hidden: number, first: boolean, last: boolean, header: string, check = "", cursor = false): string {
   // Arrows sit in the gutter; the "show all" label goes before the header.
   let arrows = "";
   let label = "";
@@ -187,7 +199,7 @@ function gapRow(g: number, hidden: number, first: boolean, last: boolean, header
     }
     label = `<button class="expand label" data-gap="${g}" data-dir="all" title="Show all ${text}">${hidden <= EXPAND_STEP ? (first ? UP : DOWN) : ""}Show ${text}</button>`;
   }
-  return `<div class="line hunk"><span class="no gap-controls">${arrows}</span><span class="code">${check}${label}${escapeHtml(header)}</span></div>`;
+  return `<div class="line hunk${cursor ? " cursor" : ""}"><span class="no gap-controls">${arrows}</span><span class="code">${check}${label}${escapeHtml(header)}</span></div>`;
 }
 
 function contextLines(
@@ -206,8 +218,16 @@ function contextLines(
   return rows;
 }
 
-function lineHtml(line: DiffLine, left: string, right: string, segments: Segment[] | null, check = "", unselected = false): string {
-  const cls = (line.kind === "+" ? "add" : line.kind === "-" ? "del" : "ctx") + (unselected ? " unselected" : "");
+function lineHtml(
+  line: DiffLine,
+  left: string,
+  right: string,
+  segments: Segment[] | null,
+  check = "",
+  unselected = false,
+  cursor = false,
+): string {
+  const cls = (line.kind === "+" ? "add" : line.kind === "-" ? "del" : "ctx") + (unselected ? " unselected" : "") + (cursor ? " cursor" : "");
   const tokens = line.kind === " " ? line.tokens.map(([, t]) => [false, t] as [boolean, string]) : line.tokens;
   return `<div class="line ${cls}"><span class="no">${check}${left}</span><span class="no">${right}</span><span class="code">${codeHtml(tokens, segments)}</span></div>`;
 }

@@ -2090,6 +2090,15 @@ dialog.prompt.editor {
   color: color-mix(in srgb, var(--gutter) 50%, transparent);
 }
 
+/* The hunk or line Space ticks: a bar in the gutter, which unticked lines don't dim. */
+.line.cursor .no:first-child {
+  box-shadow: inset 3px 0 0 var(--ui-blue);
+}
+
+.line.hunk.cursor .code {
+  background: color-mix(in srgb, var(--ui-blue) 14%, var(--hunk-bg));
+}
+
 .modebar.split {
   background: color-mix(in srgb, var(--ui-green) 12%, var(--toolbar-bg));
   border-bottom-color: color-mix(in srgb, var(--ui-green) 35%, var(--border));

@@ -82,6 +82,19 @@ export class VirtualLines {
     return this.current + 1;
   }
 
+  /**
+   * Scrolls as little as needed to show lines `first` to `last`, or as many
+   * as fit from `first`. `inset` is the height of the sticky header on top.
+   */
+  reveal(first: number, last: number, inset: number) {
+    if (!this.body) return;
+    const start = this.body.offsetTop + first * LINE_HEIGHT - inset;
+    const end = this.body.offsetTop + (last + 1) * LINE_HEIGHT;
+    const height = this.scroller.clientHeight;
+    if (start < this.scroller.scrollTop) this.scroller.scrollTop = start;
+    else if (end > this.scroller.scrollTop + height) this.scroller.scrollTop = Math.min(start, end - height);
+  }
+
   clear() {
     this.query = "";
     this.matches = [];

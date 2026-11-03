@@ -46,6 +46,16 @@
       ],
     ],
     [
+      "Split",
+      [
+        ["↑ ↓", "Move between files, or hunks or lines once in one"],
+        ["→ ←", "Step into a file, then a hunk; step back out"],
+        ["Space", "Tick the file, hunk or line"],
+        ["⇧Space", "Tick lines from the last one ticked"],
+        ["↩  Esc", "Split / cancel"],
+      ],
+    ],
+    [
       "Set parents",
       [
         ["↑ ↓  @", "Move"],

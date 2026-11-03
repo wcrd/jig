@@ -24,6 +24,7 @@ import { highlightCached, languageFor, type Segment } from "./highlight";
 import { type Html, html, raw, setHtml } from "./html";
 import { FILE } from "./icons";
 import type { SearchTarget } from "./search.svelte";
+import { notify } from "./ui";
 import type { CommitDiff, CompareDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
 import { type LineSet, VirtualLines } from "./virtual";
 
@@ -44,8 +45,80 @@ function changedLines(file: FileDiff, hunk: number): number[] {
   return out;
 }
 
+/** Changed lines in a file, as the split bar counts them: a file without hunks counts as one. */
+function changeCount(file: FileDiff): number {
+  return Math.max(1, file.hunks.reduce((n, _, g) => n + changedLines(file, g).length, 0));
+}
+
 /** Ticked lines by hunk: a hunk with all its changed lines is wholly ticked. */
 type SplitLines = Map<number, Set<number>>;
+
+/** Beyond this many comparisons, lines that moved within a file aren't matched up. */
+const MAX_MATCH_CELLS = 4_000_000;
+
+/** Pairs up equal items of two sequences in order (a longest common subsequence), by index. */
+function matchInOrder(a: string[], b: string[]): Map<number, number> {
+  const pairs = new Map<number, number>();
+  let start = 0;
+  while (start < a.length && start < b.length && a[start] === b[start]) {
+    pairs.set(start, start);
+    start++;
+  }
+  let endA = a.length;
+  let endB = b.length;
+  while (endA > start && endB > start && a[endA - 1] === b[endB - 1]) pairs.set(--endA, --endB);
+  const n = endA - start;
+  const m = endB - start;
+  if (n === 0 || m === 0 || n * m > MAX_MATCH_CELLS) return pairs;
+  // lengths[i * width + j]: the longest common subsequence of a[i..] and b[j..] in the middle.
+  const width = m + 1;
+  const lengths = new Uint32Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      lengths[i * width + j] =
+        a[start + i] === b[start + j]
+          ? lengths[(i + 1) * width + j + 1] + 1
+          : Math.max(lengths[(i + 1) * width + j], lengths[i * width + j + 1]);
+    }
+  }
+  for (let i = 0, j = 0; i < n && j < m; ) {
+    if (a[start + i] === b[start + j]) pairs.set(start + i++, start + j++);
+    else if (lengths[(i + 1) * width + j] >= lengths[i * width + j + 1]) i++;
+    else j++;
+  }
+  return pairs;
+}
+
+/**
+ * Carries a file's ticked lines over to a new diff of it. Changed lines are
+ * matched in order by side and text, so a tick follows its line when other
+ * parts of the file change. Also returns how many ticked lines are gone.
+ */
+function carrySplitLines(from: FileDiff, ticked: SplitLines, to: FileDiff): { lines: SplitLines; dropped: number } {
+  const changes = (file: FileDiff) =>
+    file.hunks.flatMap((hunk, g) =>
+      changedLines(file, g).map((i) => ({ g, i, key: hunk.lines[i].kind + hunk.lines[i].tokens.map(([, t]) => t).join("") })),
+    );
+  const before = changes(from);
+  const after = changes(to);
+  const pairs = matchInOrder(
+    before.map((c) => c.key),
+    after.map((c) => c.key),
+  );
+  const lines: SplitLines = new Map();
+  let dropped = 0;
+  before.forEach(({ g, i }, k) => {
+    if (!ticked.get(g)?.has(i)) return;
+    const match = pairs.get(k);
+    if (match === undefined) {
+      dropped++;
+      return;
+    }
+    const { g: hunk, i: line } = after[match];
+    lines.set(hunk, (lines.get(hunk) ?? new Set()).add(line));
+  });
+  return { lines, dropped };
+}
 
 export const STATUS_LETTER: Record<FileStatus, string> = {
   added: "A",
@@ -129,6 +202,15 @@ export class DetailsPanel {
   split = $state.raw<SvelteMap<string, "all" | SplitLines> | null>(null);
   /** The last line ticked or unticked, for shift-click ranges. */
   private splitAnchor: { path: string; hunk: number; line: number; on: boolean } | null = null;
+  /** The diff the ticks refer to, to carry them over when jj rewrites the commit. */
+  private splitBase: CommitDiff | null = null;
+  /**
+   * Where Space ticks in split mode: the whole file when null (→ steps in),
+   * else a hunk of `path`, or one of its changed lines.
+   */
+  private splitCursor: { path: string; hunk: number; line: number | null } | null = null;
+  /** Scroll the cursor into view on the next draw. */
+  private revealCursor = false;
 
   editor = $state.raw<MessageEditor | null>(null);
 
@@ -209,7 +291,12 @@ export class DetailsPanel {
       return;
     }
     const previousPath = this.diff?.files[this.fileIndex]?.path;
-    if (this.split && this.row?.commitId !== row.commitId) this.split = new SvelteMap();
+    if (this.split && this.splitBase?.commitId !== diff.commitId) {
+      // Editing files rewrites the working copy: keep what's still there.
+      if (this.splitBase?.changeId === diff.changeId) this.carrySplit(this.splitBase, diff);
+      else this.split = new SvelteMap();
+    }
+    if (this.split) this.splitBase = diff;
     if (this.editor && this.editor.changeId !== row.changeId) this.cancelEdit();
     this.compareFrom = null;
     this.focusedFolder = null;
@@ -273,6 +360,8 @@ export class DetailsPanel {
   startSplit() {
     this.split = new SvelteMap();
     this.splitAnchor = null;
+    this.splitBase = this.diff;
+    this.splitCursor = null;
     if (this.tab !== "changes") this.setTab("changes");
     else this.renderRight();
   }
@@ -280,7 +369,38 @@ export class DetailsPanel {
   endSplit() {
     if (!this.split) return;
     this.split = null;
+    this.splitBase = null;
+    this.splitCursor = null;
     this.renderRight();
+  }
+
+  /**
+   * The commit being split was rewritten as `to`: ticks move to the same
+   * lines in the new diff, a wholly ticked file stays wholly ticked, and
+   * anything no longer in the commit is dropped with a note saying so.
+   */
+  private carrySplit(from: CommitDiff, to: CommitDiff) {
+    const before = new Map(from.files.map((f) => [f.path, f]));
+    const after = new Map(to.files.map((f) => [f.path, f]));
+    const ticked = this.split!;
+    this.split = new SvelteMap();
+    this.splitAnchor = null;
+    let dropped = 0;
+    for (const [path, state] of ticked) {
+      const old = before.get(path);
+      const file = after.get(path);
+      if (!old) continue;
+      if (!file) {
+        dropped += state === "all" ? changeCount(old) : [...state.values()].reduce((n, s) => n + s.size, 0);
+      } else if (state === "all") {
+        this.split.set(path, "all");
+      } else {
+        const carried = carrySplitLines(old, state, file);
+        this.setSplitLines(file, carried.lines);
+        dropped += carried.dropped;
+      }
+    }
+    if (dropped > 0) notify(`Split: ${dropped} ticked ${dropped === 1 ? "change is" : "changes are"} no longer in the commit`);
   }
 
   /** Changed lines ticked and in total (a file without hunks counts as one). */
@@ -288,7 +408,7 @@ export class DetailsPanel {
     let selected = 0;
     let total = 0;
     for (const file of this.diff?.files ?? []) {
-      const size = Math.max(1, file.hunks.reduce((n, _, g) => n + changedLines(file, g).length, 0));
+      const size = changeCount(file);
       total += size;
       const state = this.split?.get(file.path);
       if (state === "all") selected += size;
@@ -399,6 +519,75 @@ export class DetailsPanel {
     }
     this.setSplitLines(file, lines);
     this.splitUpdated();
+  }
+
+  /** The split cursor, if it's still on a hunk (or changed line) of `file`. */
+  private cursorIn(file: FileDiff | undefined) {
+    const c = this.splitCursor;
+    if (!c || !file || c.path !== file.path) return null;
+    const hunk = file.hunks[c.hunk];
+    if (!hunk || (c.line !== null && (hunk.lines[c.line]?.kind ?? " ") === " ")) return null;
+    return c;
+  }
+
+  /** → in split mode: into the shown file's hunks, then into a hunk's lines. Returns whether it was used. */
+  splitStepIn(): boolean {
+    const file = this.diff?.files[this.fileIndex];
+    if (!this.split || !file || this.focusedFolder !== null) return false;
+    const c = this.cursorIn(file);
+    if (!c) {
+      if (file.hunks.length === 0) return false;
+      this.splitCursor = { path: file.path, hunk: 0, line: null };
+    } else if (c.line === null) {
+      this.splitCursor = { ...c, line: changedLines(file, c.hunk)[0] };
+    }
+    this.moveCursor();
+    return true;
+  }
+
+  /** ← in split mode: out of a hunk's lines, then out of the file. Returns whether it was used. */
+  splitStepOut(): boolean {
+    const c = this.cursorIn(this.diff?.files[this.fileIndex]);
+    if (!this.split || !c) return false;
+    this.splitCursor = c.line === null ? null : { ...c, line: null };
+    this.moveCursor();
+    return true;
+  }
+
+  /**
+   * ↑ ↓ in split mode, inside a file: to the next hunk, or the next changed
+   * line (across hunks). Returns false outside a file, where they move
+   * between files.
+   */
+  splitStep(delta: 1 | -1): boolean {
+    const file = this.diff?.files[this.fileIndex];
+    const c = this.cursorIn(file);
+    if (!this.split || !file || !c) return false;
+    if (c.line === null) {
+      this.splitCursor = { ...c, hunk: Math.max(0, Math.min(file.hunks.length - 1, c.hunk + delta)) };
+    } else {
+      const lines = file.hunks.flatMap((_, g) => changedLines(file, g).map((i) => ({ g, i })));
+      const at = lines.findIndex(({ g, i }) => g === c.hunk && i === c.line);
+      const next = lines[Math.max(0, Math.min(lines.length - 1, at + delta))];
+      this.splitCursor = { ...c, hunk: next.g, line: next.i };
+    }
+    this.moveCursor();
+    return true;
+  }
+
+  /** Space in split mode: ticks the file, hunk or line at the cursor; with shift, a range of lines. */
+  splitToggle(range: boolean) {
+    const file = this.diff?.files[this.fileIndex];
+    if (!this.split || !file || this.focusedFolder !== null) return;
+    const c = this.cursorIn(file);
+    if (!c) this.toggleSplitFile(this.fileIndex);
+    else if (c.line === null) this.toggleSplitHunk(c.hunk);
+    else this.toggleSplitLine(c.hunk, c.line, range);
+  }
+
+  private moveCursor() {
+    this.revealCursor = true;
+    this.renderDiff(false);
   }
 
   private splitUpdated() {
@@ -573,6 +762,7 @@ export class DetailsPanel {
       if (!this.diff || (index === this.fileIndex && !this.conflictPath)) return;
       this.fileIndex = index;
       this.conflictPath = null;
+      this.splitCursor = null;
     }
     this.revealSelection();
     this.renderRight();
@@ -646,11 +836,18 @@ export class DetailsPanel {
       ? {
           hunk: (g) => this.hunkSplitState(file, g),
           line: (g, i) => state === "all" || !!state?.get(g)?.has(i),
+          cursor: this.cursorIn(file),
         }
       : null;
-    this.showLines(diffLines(file, expansion, lines, language, highlight, ticked));
+    const set = diffLines(file, expansion, lines, language, highlight, ticked);
+    this.showLines(set);
     this.view.scrollTop = resetScroll ? 0 : scrollTop;
     this.view.scrollLeft = resetScroll ? 0 : scrollLeft;
+    if (this.revealCursor && "cursorRows" in set && set.cursorRows) {
+      const header = this.view.querySelector<HTMLElement>(".diff-header")?.offsetHeight ?? 0;
+      this.virtual.reveal(...set.cursorRows, header);
+    }
+    this.revealCursor = false;
   }
 
   /**
