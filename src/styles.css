@@ -706,6 +706,9 @@ body.resizing-columns * {
   height: 24px;
   padding-right: 14px;
   white-space: nowrap;
+  /* Lists can run to thousands of rows; skip laying out those out of view,
+     so resizing the pane stays quick. */
+  content-visibility: auto;
 }
 
 .tree-row:hover {
