@@ -26,7 +26,7 @@ import { FILE } from "./icons";
 import type { SearchTarget } from "./search.svelte";
 import { notify } from "./ui";
 import type { CommitDiff, CompareDiff, FileDiff, FileStatus, FileText, LogRow, TreeEntry } from "./types";
-import { type LineSet, VirtualLines } from "./virtual";
+import { type LineSet, MAX_LINE_CHARS, VirtualLines } from "./virtual";
 
 export type DetailsTab = "commit" | "changes" | "tree";
 export type ChangesView = "list" | "tree";
@@ -857,14 +857,13 @@ export class DetailsPanel {
   private async renderOmitted(file: FileDiff, force = false) {
     const header = html`<div class="diff-header">${statusBadge(file.status, file.conflict)}<span class="diff-path">${file.path}</span></div>`;
     this.virtual.unmount();
-    if (file.tooLarge && !force) {
+    if ((file.tooLarge || file.longLines) && !force) {
       const mb = (file.size / 1024 / 1024).toFixed(1);
+      const why = file.tooLarge
+        ? `This file is ${mb} MB, so it wasn't diffed automatically; large files can take a while.`
+        : `This file has lines too long to read, as minified or generated files do, so it wasn't diffed automatically. Lines are cut off at ${MAX_LINE_CHARS.toLocaleString()} characters.`;
       const button = html`<button class="header-button text load-anyway" data-action="force">Show Diff Anyway</button>`;
-      setHtml(
-        this.view,
-        header,
-        html`<div class="placeholder-text">This file is ${mb} MB, so it wasn't diffed automatically; large files can take a while.<div>${button}</div></div>`,
-      );
+      setHtml(this.view, header, html`<div class="placeholder-text">${why}<div>${button}</div></div>`);
       return;
     }
     setHtml(this.view, header, html`<div class="placeholder-text">Loading diff…</div>`);

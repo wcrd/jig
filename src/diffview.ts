@@ -4,7 +4,7 @@
 import { escapeHtml } from "./format";
 import { highlightLines, type Segment } from "./highlight";
 import type { DiffLine, FileDiff } from "./types";
-import { displayLength, type LineSet } from "./virtual";
+import { displayLength, type LineSet, MAX_LINE_CHARS } from "./virtual";
 
 /** Lines revealed per click on an expand control. */
 export const EXPAND_STEP = 20;
@@ -239,6 +239,7 @@ function lineHtml(
  */
 function codeHtml(tokens: [boolean, string][], segments: Segment[] | null): string {
   const text = tokens.map(([, t]) => t).join("");
+  if (text.length > MAX_LINE_CHARS) return cutHtml(tokens, text.length);
   if (!segments || segments.map(([, t]) => t).join("") !== text) {
     // No highlighting, or it doesn't line up with this text.
     let html = "";
@@ -271,6 +272,19 @@ function codeHtml(tokens: [boolean, string][], segments: Segment[] | null): stri
   return html || " ";
 }
 
+/** A line too long to draw whole: its start, with word changes but no highlighting. */
+function cutHtml(tokens: [boolean, string][], length: number): string {
+  let html = "";
+  let room = MAX_LINE_CHARS;
+  for (const [changed, t] of tokens) {
+    if (room <= 0) break;
+    const piece = escapeHtml(t.slice(0, room));
+    html += changed ? `<span class="w">${piece}</span>` : piece;
+    room -= t.length;
+  }
+  return `${html}<span class="cut">… ${(length - MAX_LINE_CHARS).toLocaleString()} more characters</span>`;
+}
+
 // Highlighting of each side of each hunk, for when the whole file isn't
 // loaded (and always for removed lines). Indexed by hunk, then line.
 const hunkCache = new WeakMap<FileDiff, (Segment[] | null)[][]>();
@@ -287,9 +301,9 @@ function hunkHighlights(file: FileDiff, language: string): (Segment[] | null)[][
           let o = 0;
           let n = 0;
           return hunk.lines.map((line) => {
-            if (line.kind === "-") return oldSide[o++] ?? null;
+            if (line.kind === "-") return oldSide?.[o++] ?? null;
             if (line.kind === " ") o++;
-            return newSide[n++] ?? null;
+            return newSide?.[n++] ?? null;
           });
         }),
       );

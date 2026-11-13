@@ -3,6 +3,8 @@
 
 import hljs from "highlight.js/lib/common";
 
+import { MAX_LINE_CHARS } from "./virtual";
+
 /** A run of text and its highlight.js classes ("" for plain text). */
 export type Segment = [cls: string, text: string];
 
@@ -81,8 +83,24 @@ export function languageFor(path: string): string | null {
   return EXTENSIONS[name.slice(dot + 1).toLowerCase()] ?? null;
 }
 
-/** Highlights text, returning segments per line. */
-export function highlightLines(text: string, language: string): Segment[][] {
+/** Whether any line is longer than `MAX_LINE_CHARS`. */
+function hasLongLine(text: string): boolean {
+  let start = 0;
+  while (start < text.length) {
+    let end = text.indexOf("\n", start);
+    if (end < 0) end = text.length;
+    if (end - start > MAX_LINE_CHARS) return true;
+    start = end + 1;
+  }
+  return false;
+}
+
+/**
+ * Highlights text, returning segments per line, or `null` if a line is too
+ * long to draw whole: those are drawn plain, and highlighting them is slow.
+ */
+export function highlightLines(text: string, language: string): Segment[][] | null {
+  if (hasLongLine(text)) return null;
   const html = hljs.highlight(text, { language, ignoreIllegals: true }).value;
   const template = document.createElement("template");
   template.innerHTML = html;

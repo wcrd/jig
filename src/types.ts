@@ -133,6 +133,8 @@ export interface FileDiff {
   omitted: boolean;
   /** Omitted for being over the size limit, rather than the commit's budget. */
   tooLarge: boolean;
+  /** Omitted for having a line too long to diff and draw quickly (minified or generated text). */
+  longLines: boolean;
   size: number;
   additions: number;
   deletions: number;

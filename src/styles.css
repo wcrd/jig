@@ -890,6 +890,13 @@ body.resizing-columns * {
   padding: 0 12px 0 10px;
 }
 
+/* The note after a line too long to draw whole. */
+.line .code .cut {
+  margin-left: 8px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .line.add .code {
   background: var(--add-bg);
 }

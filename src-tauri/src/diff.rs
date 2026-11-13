@@ -27,6 +27,10 @@ pub(crate) const CONTEXT_LINES: usize = 3;
 /// Files bigger than this aren't diffed unless asked for explicitly: huge
 /// files (minified code, data dumps) can take seconds to diff.
 const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
+/// Files with a line longer than this (minified code, generated pages) aren't
+/// diffed unless asked for either: a line of megabytes takes a while to diff
+/// and freezes the view while it's drawn.
+const MAX_LINE_BYTES: usize = 10_000;
 /// Once a commit's diff reaches this many lines, remaining files are listed
 /// without their diffs; the UI loads each with `file_diff` when selected.
 const MAX_TOTAL_LINES: usize = 40_000;
@@ -95,6 +99,8 @@ pub struct FileDiff {
     pub omitted: bool,
     /// Omitted because the file is bigger than `MAX_FILE_BYTES`.
     pub too_large: bool,
+    /// Omitted because a line is longer than `MAX_LINE_BYTES`.
+    pub long_lines: bool,
     /// Size of the larger side, in bytes.
     pub size: usize,
     pub additions: usize,
@@ -130,6 +136,10 @@ fn line_count(contents: &[u8]) -> usize {
     }
     let newlines = contents.iter().filter(|&&b| b == b'\n').count();
     newlines + usize::from(!contents.ends_with(b"\n"))
+}
+
+fn has_long_line(contents: &[u8]) -> bool {
+    contents.split(|&b| b == b'\n').any(|line| line.len() > MAX_LINE_BYTES)
 }
 
 fn person(signature: &Signature) -> Person {
@@ -349,6 +359,7 @@ async fn diff_trees(
             binary: left.content.is_binary || right.content.is_binary,
             omitted: false,
             too_large: false,
+            long_lines: false,
             size: left.content.contents.len().max(right.content.contents.len()),
             additions: 0,
             deletions: 0,
@@ -362,9 +373,13 @@ async fn diff_trees(
         }
         let force = matches!(limits, Limits::File { force: true });
         let over_budget = matches!(limits, Limits::Commit) && total_lines >= MAX_TOTAL_LINES;
-        if over_budget || (!force && file.size > MAX_FILE_BYTES) {
-            file.omitted = true;
+        if !force {
             file.too_large = file.size > MAX_FILE_BYTES;
+            file.long_lines = !file.too_large
+                && (has_long_line(&left.content.contents) || has_long_line(&right.content.contents));
+        }
+        if over_budget || file.too_large || file.long_lines {
+            file.omitted = true;
             files.push(file);
             continue;
         }

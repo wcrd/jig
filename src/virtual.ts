@@ -168,8 +168,16 @@ export class VirtualLines {
   }
 }
 
+/**
+ * Lines longer than this are drawn cut off, unhighlighted: a line of
+ * megabytes (minified or generated text) freezes the view while it's laid out.
+ */
+export const MAX_LINE_CHARS = 10_000;
+
 /** Display width of a line in characters, with tabs as 4. */
 export function displayLength(text: string): number {
+  // Room for the cut-off line and its "… more characters" note.
+  if (text.length > MAX_LINE_CHARS) return MAX_LINE_CHARS + 30;
   let n = 0;
   for (const c of text) n += c === "\t" ? 4 : 1;
   return n;
