@@ -50,9 +50,16 @@ function sortAndCompress(node: TreeNode) {
     const aFolder = a.item === undefined;
     const bFolder = b.item === undefined;
     if (aFolder !== bFolder) return aFolder ? -1 : 1;
-    return a.name.localeCompare(b.name, undefined, { numeric: true });
+    return byName.compare(a.name, b.name);
   });
 }
+
+// One collator for every comparison: `localeCompare` with options sets one up
+// each time, which took over 100 ms to sort a commit of 8,000 files.
+const byName = new Intl.Collator(undefined, { numeric: true });
+
+/** The height of a row in the file lists, which draw only the rows in view. */
+export const FILE_ROW_HEIGHT = 24;
 
 /** A visible row of a tree: a folder by path, or a file by item. */
 export type TreeRow = { folder: string } | { item: number };

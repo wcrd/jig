@@ -5,7 +5,7 @@
 -->
 <script lang="ts">
   import { type DetailsPanel, STATUS_LETTER } from "../details.svelte";
-  import { treeLines } from "../filetree";
+  import { FILE_ROW_HEIGHT, type TreeLine, treeLines } from "../filetree";
   import { CHEVRON, COLLAPSE, FILE, FOLDER, LIST, TREE } from "../icons";
   import type { FileDiff, FileStatus } from "../types";
 
@@ -21,6 +21,34 @@
   const treeLoaded = $derived(!!panel.row && panel.treeCommit === panel.row.commitId && !!panel.treeRoot);
   const repoLines = $derived(treeLoaded ? treeLines(panel.treeRoot!, panel.treeCollapsed()) : []);
   const treeChanged = $derived(new Map(files.map((f) => [f.path, f])));
+
+  // The rows below any conflicts, which can run to thousands: only those in
+  // view are drawn, in a block as tall as all of them.
+  type ListLine = { item: number; name: string; dir: string };
+  const lines: (TreeLine | ListLine)[] = $derived.by(() => {
+    if (panel.tab === "tree") return repoLines;
+    if (!panel.diff) return [];
+    if (panel.changesView === "tree") return changesLines;
+    return files.map((file, item) => {
+      const [name, dir] = splitPath(file.path);
+      return { item, name, dir };
+    });
+  });
+  const OVERSCAN = 10;
+  let list: HTMLElement;
+  let block: HTMLElement | undefined = $state();
+  let scrollTop = $state(0);
+  let height = $state(0);
+  // Where the block starts in the list's scrolled content.
+  let blockTop = $state(0);
+  $effect(() => {
+    void lines;
+    void conflicts.length;
+    blockTop = block ? block.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop : 0;
+  });
+  const first = $derived(Math.max(0, Math.floor((scrollTop - blockTop) / FILE_ROW_HEIGHT) - OVERSCAN));
+  const last = $derived(Math.min(lines.length, Math.ceil((scrollTop - blockTop + height) / FILE_ROW_HEIGHT) + OVERSCAN));
+  const shown = $derived(lines.slice(first, last));
 
   function splitPath(path: string): [string, string] {
     const slash = path.lastIndexOf("/");
@@ -104,30 +132,11 @@
     <span>Changes</span>
   {/if}
 </div>
-<div data-ref="file-list" class="file-list">
+<div data-ref="file-list" class="file-list" bind:this={list} bind:clientHeight={height} onscroll={() => (scrollTop = list.scrollTop)}>
   {#if panel.tab === "tree"}
-    {#if treeLoaded}
-      {#each repoLines as line ("folder" in line ? `d${line.folder}` : `f${line.item}`)}
-        {#if "folder" in line}
-          {@render folder(line.folder, line.name, line.depth, line.open)}
-        {:else}
-          {@const file = treeChanged.get(panel.treeEntries[line.item].path)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div
-            class={["tree-row", "file", selectedFile(line.item) && "selected"]}
-            data-index={line.item}
-            style="padding-left:{10 + line.depth * 14}px"
-            onmousedown={() => panel.selectItem(line.item)}
-          >
-            <span class="chevron-space"></span>{#if file}{@render badge(file.status, file.conflict)}{:else}{@html FILE}{/if}<span class="path"
-              ><span class="name">{line.name}</span></span
-            >
-          </div>
-        {/if}
-      {/each}
-    {:else if panel.row && panel.treeLoad?.state === "error"}
+    {#if !treeLoaded && panel.row && panel.treeLoad?.state === "error"}
       <div class="placeholder-text error-text">{panel.treeLoad.message}</div>
-    {:else if panel.row}
+    {:else if !treeLoaded && panel.row}
       <div class="placeholder-text">Loading…</div>
     {/if}
   {:else if panel.diff}
@@ -149,13 +158,30 @@
     {#if files.length === 0}
       <!-- jj diffs a merge against its auto-merged parents, so a clean merge has no changes of its own. -->
       <div class="placeholder-text">{emptyMessage}</div>
-    {:else}
-      {#if conflicts.length > 0}<div class="list-section">Changes</div>{/if}
-      {#if panel.changesView === "tree"}
-        {#each changesLines as line ("folder" in line ? `d${line.folder}` : `f${line.item}`)}
+    {:else if conflicts.length > 0}
+      <div class="list-section">Changes</div>
+    {/if}
+  {/if}
+  {#if lines.length > 0}
+    <div class="file-rows" bind:this={block} style="height:{lines.length * FILE_ROW_HEIGHT}px">
+      <div style="transform:translateY({first * FILE_ROW_HEIGHT}px)">
+        {#each shown as line ("folder" in line ? `d${line.folder}` : `f${line.item}`)}
           {#if "folder" in line}
             {@render folder(line.folder, line.name, line.depth, line.open)}
-          {:else}
+          {:else if panel.tab === "tree" && "depth" in line}
+            {@const file = treeChanged.get(panel.treeEntries[line.item].path)}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class={["tree-row", "file", selectedFile(line.item) && "selected"]}
+              data-index={line.item}
+              style="padding-left:{10 + line.depth * 14}px"
+              onmousedown={() => panel.selectItem(line.item)}
+            >
+              <span class="chevron-space"></span>{#if file}{@render badge(file.status, file.conflict)}{:else}{@html FILE}{/if}<span class="path"
+                ><span class="name">{line.name}</span></span
+              >
+            </div>
+          {:else if "depth" in line}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <div
               class={["tree-row", "file", selectedFile(line.item) && "selected"]}
@@ -166,17 +192,19 @@
             >
               <span class="chevron-space"></span>{@render changedFile(files[line.item], line.item, line.name, "")}
             </div>
+          {:else}
+            <!-- svelte-ignore a11y_no_static_element_interactions -->
+            <div
+              class={["tree-row", "file", selectedFile(line.item) && "selected"]}
+              data-index={line.item}
+              onmousedown={() => panel.selectItem(line.item)}
+              oncontextmenu={(event) => fileMenu(event, line.item)}
+            >
+              {@render changedFile(files[line.item], line.item, line.name, line.dir)}
+            </div>
           {/if}
         {/each}
-      {:else}
-        {#each files as file, i (i)}
-          {@const [name, dir] = splitPath(file.path)}
-          <!-- svelte-ignore a11y_no_static_element_interactions -->
-          <div class={["tree-row", "file", selectedFile(i) && "selected"]} data-index={i} onmousedown={() => panel.selectItem(i)} oncontextmenu={(event) => fileMenu(event, i)}>
-            {@render changedFile(file, i, name, dir)}
-          </div>
-        {/each}
-      {/if}
-    {/if}
+      </div>
+    </div>
   {/if}
 </div>

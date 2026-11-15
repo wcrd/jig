@@ -19,7 +19,7 @@ import {
   type SplitTicks,
   splitLines,
 } from "./diffview";
-import { buildTree, folderPaths, treeLines, type TreeNode, type TreeRow } from "./filetree";
+import { FILE_ROW_HEIGHT, buildTree, folderPaths, treeLines, type TreeNode, type TreeRow } from "./filetree";
 import { highlightCached, languageFor, type Segment } from "./highlight";
 import { type Html, html, raw, setHtml } from "./html";
 import { FILE } from "./icons";
@@ -662,10 +662,23 @@ export class DetailsPanel {
     return this.focusedFolder === null && row.item === (this.tab === "tree" ? this.treeIndex() : this.fileIndex);
   }
 
-  /** Scrolls the highlighted row into view once it's drawn. */
+  /**
+   * Scrolls the highlighted row into view. The list draws only the rows in
+   * view, so it may not be drawn yet: it goes by the row's place in the list.
+   */
   private async revealSelection() {
     await tick();
-    this.fileList.querySelector(".tree-row.selected")?.scrollIntoView({ block: "nearest" });
+    const list = this.fileList;
+    const at = this.rows().findIndex((r) => this.isCurrentRow(r));
+    const block = list.querySelector<HTMLElement>(".file-rows");
+    if (at < 0 || !block) {
+      // A conflict, listed above the rest and always drawn.
+      list.querySelector(".tree-row.selected")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    const top = block.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop + at * FILE_ROW_HEIGHT;
+    if (top < list.scrollTop) list.scrollTop = top;
+    else if (top + FILE_ROW_HEIGHT > list.scrollTop + list.clientHeight) list.scrollTop = top + FILE_ROW_HEIGHT - list.clientHeight;
   }
 
   get currentTab(): DetailsTab {
