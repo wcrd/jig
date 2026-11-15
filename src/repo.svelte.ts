@@ -13,7 +13,7 @@ import { renderRow } from "./rows";
 import { refreshScope, terminalApp } from "./settings";
 import { type SidebarItem, workspaceItem } from "./sidebar";
 import { remoteWebUrl } from "./format";
-import { type MenuEntry, confirm, copy, editText, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
+import { type MenuEntry, confirm, copy, editText, menuShowing, notify, prompt, runWithToast, showHelp, showMenu } from "./ui";
 import type { CommandOutput, CommitDiff, CompareDiff, LogResponse, LogRow } from "./types";
 
 const OVERSCAN = 8;
@@ -397,10 +397,12 @@ export class Repo {
   /**
    * Reloads if jj has run an operation since the last load. While the window
    * has focus it snapshots the working copy first: editing files doesn't
-   * make an operation until something snapshots them.
+   * make an operation until something snapshots them. Not while a context
+   * menu is up: the snapshot and reload compete with it, which shows when
+   * the working copy is changing a lot.
    */
   async pollForChanges() {
-    if (!isTauri || !this.log || this.loading || this.polling || this.acting > 0) return;
+    if (!isTauri || !this.log || this.loading || this.polling || this.acting > 0 || menuShowing()) return;
     this.polling = true;
     try {
       if (document.hasFocus()) await jj.snapshot(this.path);

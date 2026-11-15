@@ -2,7 +2,7 @@
 // toasts for command results.
 
 import { LogicalPosition } from "@tauri-apps/api/dpi";
-import { Menu, MenuItem, PredefinedMenuItem, Submenu } from "@tauri-apps/api/menu";
+import { Menu, type MenuItemOptions, type PredefinedMenuItemOptions, type SubmenuOptions } from "@tauri-apps/api/menu";
 import { ask } from "@tauri-apps/plugin-dialog";
 
 import { isTauri } from "./api";
@@ -20,30 +20,37 @@ export type MenuEntry =
   | { text: string; items: MenuEntry[] }
   | "separator";
 
-type NativeItem = MenuItem | PredefinedMenuItem | Submenu;
+type ItemOptions = MenuItemOptions | PredefinedMenuItemOptions | SubmenuOptions;
 
-async function buildItems(entries: MenuEntry[]): Promise<NativeItem[]> {
-  return Promise.all(
-    entries.map(async (entry): Promise<NativeItem> => {
-      if (entry === "separator") return PredefinedMenuItem.new({ item: "Separator" });
-      if ("items" in entry) {
-        return Submenu.new({ text: entry.text, items: await buildItems(entry.items) });
-      }
-      return MenuItem.new({
-        text: entry.text,
-        enabled: entry.enabled ?? true,
-        accelerator: entry.shortcut,
-        action: entry.action,
-      });
-    }),
-  );
+function itemOptions(entries: MenuEntry[]): ItemOptions[] {
+  return entries.map((entry): ItemOptions => {
+    if (entry === "separator") return { item: "Separator" };
+    if ("items" in entry) return { text: entry.text, items: itemOptions(entry.items) };
+    return { text: entry.text, enabled: entry.enabled ?? true, accelerator: entry.shortcut, action: entry.action };
+  });
+}
+
+let menusShowing = 0;
+
+/** Whether a context menu is being built or is open, when background reloads hold off. */
+export function menuShowing(): boolean {
+  return menusShowing > 0;
 }
 
 /** Shows a native context menu at the pointer, or at `at` in window coordinates. */
 export async function showMenu(entries: MenuEntry[], at?: { x: number; y: number }) {
   if (!isTauri) return;
-  const menu = await Menu.new({ items: await buildItems(entries) });
-  await menu.popup(at ? new LogicalPosition(at.x, at.y) : undefined);
+  menusShowing++;
+  try {
+    // The whole menu is made in one call. Made an item at a time, it took a
+    // round trip each, and while jj is busy with a working copy that keeps
+    // changing those add up to seconds before the menu appears.
+    const menu = await Menu.new({ items: itemOptions(entries) });
+    // Resolves once the menu has closed.
+    await menu.popup(at ? new LogicalPosition(at.x, at.y) : undefined);
+  } finally {
+    menusShowing--;
+  }
 }
 
 export async function confirm(message: string, title: string, okLabel: string): Promise<boolean> {
