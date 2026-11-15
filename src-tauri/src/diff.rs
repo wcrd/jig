@@ -5,17 +5,17 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use bstr::{BStr, ByteSlice};
-use futures::StreamExt;
+use futures::{StreamExt, TryStreamExt, stream};
 use jj_lib::backend::{CommitId, Signature, TreeValue};
 use jj_lib::conflicts::{
     ConflictMarkerStyle, ConflictMaterializeOptions, MaterializedTreeDiffEntry,
     MaterializedTreeValue, materialize_tree_value, materialized_diff_stream,
 };
-use jj_lib::copies::{CopyOperation, CopyRecords};
+use jj_lib::copies::{CopiesTreeDiffEntry, CopiesTreeDiffEntryPath, CopyOperation, CopyRecords};
 use jj_lib::diff_presentation::unified::{DiffLineType, git_diff_part, unified_diff_hunks};
 use jj_lib::diff_presentation::{DiffTokenType, LineCompareMode};
 use jj_lib::matchers::{EverythingMatcher, FilesMatcher, Matcher};
-use jj_lib::merge::Diff;
+use jj_lib::merge::{Diff, MergedTreeValue};
 use jj_lib::object_id::ObjectId;
 use jj_lib::merged_tree::MergedTree;
 use jj_lib::repo::{ReadonlyRepo, Repo};
@@ -32,7 +32,8 @@ const MAX_FILE_BYTES: usize = 20 * 1024 * 1024;
 /// and freezes the view while it's drawn.
 const MAX_LINE_BYTES: usize = 10_000;
 /// Once a commit's diff reaches this many lines, remaining files are listed
-/// without their diffs; the UI loads each with `file_diff` when selected.
+/// without their diffs, or even reading them; the UI loads each with
+/// `file_diff` when selected.
 const MAX_TOTAL_LINES: usize = 40_000;
 
 /// How much `diff_trees` diffs.
@@ -319,16 +320,31 @@ async fn diff_trees(
         marker_len: None,
         merge: store.merge_options().clone(),
     };
-    let tree_diff = from_tree.diff_stream_with_copies(to_tree, matcher, copy_records);
+    // Comparing the trees reads no file contents; materializing the files
+    // does. A commit of thousands of files spends most of its time reading
+    // those past the line budget, so they're listed from the trees alone.
+    let entries: Vec<(CopiesTreeDiffEntryPath, Diff<MergedTreeValue>)> = from_tree
+        .diff_stream_with_copies(to_tree, matcher, copy_records)
+        .map(|CopiesTreeDiffEntry { path, values }| values.map(|values| (path, values)))
+        .try_collect()
+        .await?;
+    let tree_diff = stream::iter(entries.iter().map(|(path, values)| CopiesTreeDiffEntry {
+        path: path.clone(),
+        values: Ok(values.clone()),
+    }))
+    .boxed();
     let mut stream = materialized_diff_stream(
         store,
         tree_diff,
         Diff::new(from_tree.labels(), to_tree.labels()),
     );
 
-    let mut files = vec![];
+    let mut files = Vec::with_capacity(entries.len());
     let mut total_lines = 0;
     while let Some(MaterializedTreeDiffEntry { path, values }) = stream.next().await {
+        if matches!(limits, Limits::Commit) && total_lines >= MAX_TOTAL_LINES {
+            break;
+        }
         let values = values?;
         let status = match &path.source {
             Some((_, CopyOperation::Rename)) => FileStatus::Renamed,
@@ -372,13 +388,12 @@ async fn diff_trees(
             continue;
         }
         let force = matches!(limits, Limits::File { force: true });
-        let over_budget = matches!(limits, Limits::Commit) && total_lines >= MAX_TOTAL_LINES;
         if !force {
             file.too_large = file.size > MAX_FILE_BYTES;
             file.long_lines = !file.too_large
                 && (has_long_line(&left.content.contents) || has_long_line(&right.content.contents));
         }
-        if over_budget || file.too_large || file.long_lines {
+        if file.too_large || file.long_lines {
             file.omitted = true;
             files.push(file);
             continue;
@@ -431,8 +446,40 @@ async fn diff_trees(
         }
         files.push(file);
     }
+    drop(stream);
+    files.extend(entries[files.len()..].iter().map(|(path, values)| unread_file(path, values)));
 
     Ok(files)
+}
+
+/// A file past the line budget, from the trees alone: its size, line counts
+/// and whether it's binary aren't known until the UI loads it.
+fn unread_file(path: &CopiesTreeDiffEntryPath, values: &Diff<MergedTreeValue>) -> FileDiff {
+    FileDiff {
+        path: path.target().as_internal_file_string().to_owned(),
+        source_path: path
+            .source
+            .as_ref()
+            .map(|(source, _)| source.as_internal_file_string().to_owned()),
+        status: match &path.source {
+            Some((_, CopyOperation::Rename)) => FileStatus::Renamed,
+            Some((_, CopyOperation::Copy)) => FileStatus::Copied,
+            None if values.before.is_absent() => FileStatus::Added,
+            None if values.after.is_absent() => FileStatus::Deleted,
+            None => FileStatus::Modified,
+        },
+        conflict: !values.before.is_resolved() || !values.after.is_resolved(),
+        binary: false,
+        omitted: true,
+        too_large: false,
+        long_lines: false,
+        size: 0,
+        additions: 0,
+        deletions: 0,
+        old_line_count: 0,
+        new_line_count: 0,
+        hunks: vec![],
+    }
 }
 
 #[derive(Serialize)]
