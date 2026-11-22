@@ -33,15 +33,21 @@ While I built this for the 2 reasons above, `jig` also supports most of the othe
 
 ![Resolving a conflict](docs/screenshots/resolve.png)
 
-### Operation log
+### Compare any two commits
 
-![Operation log](docs/screenshots/oplog.png)
+Select a commit, then ⌘-click any other to diff the two, even across branches. `⇄` swaps the direction, and `Esc` goes back to the single commit.
+
+![Comparing two commits on different branches](docs/screenshots/compare.png)
 
 ### Full-size diff
 
 Press `d` on the Changes tab to fill the window with the diff. `↑` / `↓` step through files, `j` / `k` through commits, and `Esc` goes back.
 
 ![Full-size diff](docs/screenshots/diff.png)
+
+### Operation log
+
+![Operation log](docs/screenshots/oplog.png)
 
 ## Install
 Jig runs repository changes through your `jj`, so it needs `jj` 0.40 on your `PATH`.

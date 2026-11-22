@@ -1,6 +1,7 @@
 // Captures the README screenshots by driving headless Chrome over CDP
 // against the browser preview (`npm run dev` with a playground fixture).
-// See DEVELOPMENT.md for the steps list used.
+// See DEVELOPMENT.md for the steps list used. A step with "meta": true
+// ⌘-clicks.
 //
 //   node scripts/screenshots.mjs <out dir> [light|dark] '<steps JSON>'
 import { spawn } from "node:child_process";
@@ -26,12 +27,12 @@ await send("Emulation.setDeviceMetricsOverride", { width: W, height: H, deviceSc
 await send("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: scheme }] });
 await send("Page.navigate", { url: "http://localhost:1420/" });
 await sleep(2000);
-async function click(selector, text) {
+async function click(selector, text, modifiers = 0) {
   const pt = await evaluate(`(() => { const els = [...document.querySelectorAll(${JSON.stringify(selector)})].filter(e => e.offsetParent !== null);
     const el = ${text ? `els.filter(e => e.textContent.includes(${JSON.stringify(text)})).sort((a, b) => a.querySelectorAll("*").length - b.querySelectorAll("*").length)[0]` : "els[0]"}; if (!el) return null;
     const r = el.getBoundingClientRect(); return { x: r.x + Math.min(r.width / 2, 40), y: r.y + r.height / 2 }; })()`);
   if (!pt) throw new Error(`not found: ${selector} ${text ?? ""}`);
-  for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1 });
+  for (const type of ["mouseMoved", "mousePressed", "mouseReleased"]) await send("Input.dispatchMouseEvent", { type, x: pt.x, y: pt.y, button: "left", clickCount: 1, modifiers });
   await sleep(700);
 }
 async function shot(name) {
@@ -42,5 +43,5 @@ async function shot(name) {
 }
 const steps = JSON.parse(process.argv[4] ?? "[]");
 try {
-  for (const s of steps) { if (s.click) await click(s.click, s.text); if (s.eval) console.log(await evaluate(s.eval)); if (s.wait) await sleep(s.wait); if (s.shot) await shot(s.shot); }
+  for (const s of steps) { if (s.click) await click(s.click, s.text, s.meta ? 4 : 0); if (s.eval) console.log(await evaluate(s.eval)); if (s.wait) await sleep(s.wait); if (s.shot) await shot(s.shot); }
 } finally { ws.close(); chrome.kill(); }
