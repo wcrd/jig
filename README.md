@@ -4,7 +4,7 @@ A desktop GUI for [Jujutsu](https://github.com/jj-vcs/jj), built with Tauri and 
 
 ![Commit graph with a file diff](docs/screenshots/main.png)
 
-Inspired by `jjui` and `Fork (git)`.
+If you've used Fork, SourceTree or MeGit with git, Jig fills that role for `jj`, with `jjui`'s keybindings.
 
 ### Why Jig
 
