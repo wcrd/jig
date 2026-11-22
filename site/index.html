@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Jig: a desktop GUI for Jujutsu</title>
+    <meta
+      name="description"
+      content="Jig is a desktop GUI for the Jujutsu (jj) version control system. See the whole commit graph, resolve conflicts visually, and keep your jjui key bindings."
+    />
+    <meta name="color-scheme" content="light dark" />
+    <meta property="og:title" content="Jig: a desktop GUI for Jujutsu" />
+    <meta
+      property="og:description"
+      content="See the whole commit graph, resolve conflicts visually, and keep your jjui key bindings."
+    />
+    <meta property="og:image" content="img/main.webp" />
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link
+      rel="preload"
+      as="image"
+      href="img/main.webp"
+      imagesrcset="img/main-1000.webp 1000w, img/main.webp 2000w"
+      imagesizes="(min-width: 1040px) 1000px, calc(100vw - 40px)"
+    />
+    <style>
+      /* Theme */
+
+      :root {
+        --bg: #fafafa;
+        --fg: #1c1d21;
+        --muted: #62646c;
+        --line: #e3e3e7;
+        --surface: #ffffff;
+        --code-bg: #f0f0f3;
+        --orange: #e8962a;
+        --blue: #2f86d6;
+        --shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 12px 40px rgb(0 0 0 / 0.1);
+        --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+        @media (prefers-color-scheme: dark) {
+          --bg: #131417;
+          --fg: #f2f2f4;
+          --muted: #9a9ca5;
+          --line: #2a2b31;
+          --surface: #1b1c20;
+          --code-bg: #202127;
+          --orange: #f2a93b;
+          --blue: #3d9cf0;
+          --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 40px rgb(0 0 0 / 0.5);
+        }
+      }
+
+      /* Base */
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: var(--sans);
+        font-size: 17px;
+        line-height: 1.6;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      a {
+        color: var(--blue);
+        text-decoration: none;
+
+        &:hover {
+          text-decoration: underline;
+        }
+      }
+
+      img {
+        display: block;
+        max-width: 100%;
+        height: auto;
+      }
+
+      code {
+        font-family: var(--mono);
+        font-size: 0.88em;
+        background: var(--code-bg);
+        padding: 0.1em 0.35em;
+        border-radius: 5px;
+      }
+
+      kbd {
+        font-family: var(--mono);
+        font-size: 0.82em;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-bottom-width: 2px;
+        border-radius: 5px;
+        padding: 0.05em 0.4em;
+      }
+
+      h2 {
+        font-size: 28px;
+        letter-spacing: -0.01em;
+        margin: 0 0 16px;
+      }
+
+      h3 {
+        font-size: 18px;
+        margin: 0 0 4px;
+      }
+
+      .lead {
+        color: var(--muted);
+        margin: 0 0 24px;
+      }
+
+      .note {
+        color: var(--muted);
+        font-size: 14px;
+        margin-top: 14px;
+      }
+
+      /* Layout: .wrap for screenshots, .narrow for text */
+
+      .wrap,
+      .narrow {
+        margin: 0 auto;
+        padding-inline: 20px;
+      }
+
+      .wrap {
+        max-width: 1080px;
+      }
+
+      .narrow {
+        max-width: 720px;
+      }
+
+      section {
+        padding-top: 72px;
+      }
+
+      /* Header */
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 36px;
+        padding-bottom: 20px;
+
+        .brand {
+          color: var(--fg);
+          font-size: 20px;
+          font-weight: 650;
+
+          &:hover {
+            text-decoration: none;
+          }
+        }
+
+        nav a {
+          color: var(--muted);
+          font-size: 15px;
+        }
+      }
+
+      /* Hero */
+
+      .hero {
+        text-align: center;
+        padding: 56px 0 40px;
+
+        h1 {
+          font-size: clamp(36px, 6vw, 56px);
+          line-height: 1.1;
+          letter-spacing: -0.02em;
+          margin: 0 0 16px;
+        }
+
+        p {
+          color: var(--muted);
+          font-size: 19px;
+          max-width: 34em;
+          margin: 0 auto 28px;
+        }
+
+        .actions {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: center;
+          gap: 12px;
+        }
+      }
+
+      .btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 18px;
+        font-size: 16px;
+        font-weight: 550;
+        color: var(--fg);
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 9px;
+
+        &:hover {
+          text-decoration: none;
+          border-color: var(--muted);
+        }
+
+        &.primary {
+          color: var(--bg);
+          background: var(--fg);
+          border-color: var(--fg);
+
+          &:hover {
+            opacity: 0.88;
+          }
+        }
+      }
+
+      /* Screenshots. Capped at 1000px so the 2000px images are 1:1 on retina screens. */
+
+      .shot {
+        max-width: min(100%, 1000px);
+        margin: 0 auto;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+      }
+
+      /* Why Jig */
+
+      .why {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+        gap: 16px;
+        padding-bottom: 16px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 20px 22px;
+
+        p {
+          color: var(--muted);
+          margin: 0;
+        }
+
+        .dot {
+          display: inline-block;
+          width: 10px;
+          height: 10px;
+          margin-right: 8px;
+          border-radius: 50%;
+          vertical-align: 1px;
+        }
+      }
+
+      /* Feature list, with alternating orange and blue bullets */
+
+      .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+        gap: 10px 32px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+
+        li {
+          position: relative;
+          padding-left: 20px;
+
+          &::before {
+            content: "";
+            position: absolute;
+            left: 2px;
+            top: 0.62em;
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--blue);
+          }
+
+          &:nth-child(odd)::before {
+            background: var(--orange);
+          }
+        }
+      }
+
+      /* Feature showcases */
+
+      .feature {
+        padding-top: 56px;
+
+        .narrow {
+          margin-bottom: 20px;
+        }
+
+        p {
+          color: var(--muted);
+          margin: 0;
+        }
+      }
+
+      /* Install */
+
+      .steps {
+        margin: 0;
+        padding-left: 1.2em;
+
+        li {
+          margin-bottom: 18px;
+        }
+
+        p {
+          margin: 0 0 8px;
+        }
+      }
+
+      .tip {
+        margin-top: 24px;
+
+        p {
+          color: var(--muted);
+          margin: 0 0 8px;
+        }
+      }
+
+      pre {
+        position: relative;
+        margin: 0;
+        /* Extra right padding keeps text clear of the Copy button */
+        padding: 12px 72px 12px 14px;
+        font-family: var(--mono);
+        font-size: 14px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: var(--code-bg);
+        border-radius: 9px;
+
+        code {
+          font-size: inherit;
+          background: none;
+          padding: 0;
+        }
+
+        .copy {
+          position: absolute;
+          top: 6px;
+          right: 6px;
+          padding: 6px 8px;
+          font-family: var(--sans);
+          font-size: 12px;
+          line-height: 1;
+          color: var(--muted);
+          background: var(--surface);
+          border: 1px solid var(--line);
+          border-radius: 6px;
+          cursor: pointer;
+
+          &:hover {
+            color: var(--fg);
+          }
+        }
+      }
+
+      /* Footer */
+
+      footer {
+        margin-top: 96px;
+        padding: 28px 0 40px;
+        color: var(--muted);
+        font-size: 14px;
+        border-top: 1px solid var(--line);
+
+        .wrap {
+          display: flex;
+          flex-wrap: wrap;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        a {
+          color: var(--muted);
+          text-decoration: underline;
+          text-underline-offset: 2px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="wrap">
+      <a class="brand" href="./">
+        Jig
+      </a>
+      <nav><a href="https://github.com/wcrd/jig">GitHub</a></nav>
+    </header>
+
+    <main>
+      <div class="hero narrow">
+        <h1>A desktop GUI for Jujutsu</h1>
+        <p>
+          See your whole commit graph, inspect diffs, resolve conflicts side by side, and run
+          every <code>jj</code> operation with the key bindings you already know
+          from <code>jjui</code>.
+        </p>
+        <div class="actions">
+          <a
+            class="btn primary"
+            href="https://github.com/wcrd/jig/releases/latest"
+            >Download for macOS</a
+          >
+          <a class="btn" href="https://github.com/wcrd/jig">View source</a>
+        </div>
+        <div class="note">
+          Free and open source (MIT). Requires <code>jj</code> 0.40 on your
+          <code>PATH</code>.
+        </div>
+      </div>
+
+      <div class="wrap">
+        <img
+          class="shot"
+          src="img/main.webp"
+          srcset="img/main-1000.webp 1000w, img/main.webp 2000w"
+          sizes="(min-width: 1040px) 1000px, calc(100vw - 40px)"
+          width="2000"
+          height="1228"
+          alt="Jig showing a commit graph with bookmarks, workspaces and a file diff"
+          fetchpriority="high"
+        />
+      </div>
+
+      <section class="narrow">
+        <h2>Why Jig</h2>
+        <p class="lead">
+          <code>jjui</code> handles most day-to-day <code>jj</code> work right in the terminal. <code>Jig</code> was built to
+          cover two things a terminal UI makes hard (for me).
+        </p>
+        <div class="why">
+          <div class="card">
+            <h3>
+              <span class="dot" style="background: var(--orange)"></span>See and interact with the
+              whole graph
+            </h3>
+            <p>
+              When you're juggling several workspaces and branches, sometimes
+              it helps to see everything at once interactively.
+            </p>
+          </div>
+          <div class="card">
+            <h3>
+              <span class="dot" style="background: var(--blue)"></span>Resolve
+              conflicts visually
+            </h3>
+            <p>
+              There are already plenty of tools for this, but this one is included right in the GUI. No untangling conflict
+              markers by hand.
+            </p>
+          </div>
+        </div>
+        <p class="lead">That being said, it also does most other things you would expect from a VCS GUI tool!</p>
+      </section>
+
+      <section class="narrow">
+        <h2>Everything else you'd expect</h2>
+        <ul class="features">
+          <li>
+            Commit graph with bookmarks, remotes, workspaces, divergence and
+            conflicts
+          </li>
+          <li>
+            Diffs, the file tree at any commit, and commit comparison
+            (<kbd>⌘</kbd>-click two commits)
+          </li>
+          <li>
+            New, describe, squash, split, rebase, abandon, revert and
+            cherry-pick, with undo and redo
+          </li>
+          <li>Fetch, push, and bookmark and tag management</li>
+          <li>Add, forget and delete workspaces</li>
+          <li>
+            Run any <code>jj</code> command, aliases included, with <kbd>:</kbd>
+          </li>
+          <li>Operation log viewer</li>
+          <li>Multiple windows, with tabs you can drag between them</li>
+          <li>
+            <code>jjui</code> key bindings (press <kbd>?</kbd> for shortcuts)
+          </li>
+          <li>Right-click menus on commits, bookmarks, files and operations</li>
+        </ul>
+      </section>
+
+      <section>
+        <div class="feature">
+          <div class="narrow">
+            <h3>Conflict resolver</h3>
+            <p>
+              Three column merge view. Take a side with
+              <kbd>»</kbd> or <kbd>«</kbd>, or type the result yourself, then
+              mark it resolved.
+            </p>
+          </div>
+          <div class="wrap">
+            <img
+              class="shot"
+              src="img/resolve.webp"
+              srcset="img/resolve-1000.webp 1000w, img/resolve.webp 2000w"
+              sizes="(min-width: 1040px) 1000px, calc(100vw - 40px)"
+              width="2000"
+              height="1228"
+              alt="Resolving a conflict in Jig"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+
+        <div class="feature">
+          <div class="narrow">
+            <h3>Compare any two commits</h3>
+            <p>
+              Select a commit, then <kbd>⌘</kbd>-click any other to diff the
+              two, even across branches. <kbd>⇄</kbd> swaps the direction, and
+              <kbd>Esc</kbd> goes back to the single commit.
+            </p>
+          </div>
+          <div class="wrap">
+            <img
+              class="shot"
+              src="img/compare.webp"
+              srcset="img/compare-1000.webp 1000w, img/compare.webp 2000w"
+              sizes="(min-width: 1040px) 1000px, calc(100vw - 40px)"
+              width="2000"
+              height="1228"
+              alt="Comparing two commits on different branches in Jig"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+
+        <div class="feature">
+          <div class="narrow">
+            <h3>Full-size diff</h3>
+            <p>
+              Press <kbd>d</kbd> on the Changes tab or use the <kbd>→</kbd> arrow to fill the window with the
+              diff. Use <kbd>↑</kbd> <kbd>↓</kbd> to step through files, and <kbd>j</kbd>
+              <kbd>k</kbd> to step through commits while in full-size mode.
+            </p>
+          </div>
+          <div class="wrap">
+            <img
+              class="shot"
+              src="img/diff.webp"
+              srcset="img/diff-1000.webp 1000w, img/diff.webp 2000w"
+              sizes="(min-width: 1040px) 1000px, calc(100vw - 40px)"
+              width="2000"
+              height="1228"
+              alt="A full-window diff in Jig"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+
+        <div class="feature">
+          <div class="narrow">
+            <h3>Operation log</h3>
+            <p>
+              Browse every operation, see what each one changed, and restore to
+              or revert any of them.
+            </p>
+          </div>
+          <div class="wrap">
+            <img
+              class="shot"
+              src="img/oplog.webp"
+              srcset="img/oplog-1000.webp 1000w, img/oplog.webp 2000w"
+              sizes="(min-width: 1040px) 1000px, calc(100vw - 40px)"
+              width="2000"
+              height="1228"
+              alt="Jig's operation log"
+              loading="lazy"
+              decoding="async"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section class="narrow" id="install">
+        <h2>Install</h2>
+        <p class="lead">
+          Jig runs repository changes through your own <code>jj</code>, so it
+          needs <code>jj</code> 0.40 on your <code>PATH</code>.
+        </p>
+        <ol class="steps">
+          <li>
+            <p>
+              Download the <code>.dmg</code> from the
+              <a href="https://github.com/wcrd/jig/releases/latest"
+                >latest release</a
+              >
+              and drag Jig to Applications.
+            </p>
+          </li>
+          <li>
+            <p>
+              Jig isn't notarized yet, so macOS will refuse to open it the first
+              time. Clear the quarantine flag:
+            </p>
+            <pre><code>xattr -dr com.apple.quarantine /Applications/Jig.app</code></pre>
+          </li>
+          <li>
+            <p>
+              Open Jig and choose <strong>Open Repository…</strong>, or press
+              <kbd>⌘T</kbd> to open another in a new tab.
+            </p>
+          </li>
+        </ol>
+        <div class="tip">
+          <p>
+            <strong>Tip:</strong> you can also open a repo from a terminal, even
+            into a Jig that's already running, or drop a folder on Jig's Dock
+            icon.
+          </p>
+          <pre><code>open . -a Jig</code></pre>
+        </div>
+        <p class="note">
+          On other systems,
+          <a href="https://github.com/wcrd/jig/blob/main/DEVELOPMENT.md"
+            >build from source</a
+          >.
+        </p>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        <span
+          >Jig is MIT licensed. Built with
+          <a href="https://tauri.app">Tauri</a> and <code>jj-lib</code>.</span
+        >
+        <span>wcrd</span>
+      </div>
+    </footer>
+
+    <script>
+      for (const pre of document.querySelectorAll("pre")) {
+        const btn = document.createElement("button");
+        btn.className = "copy";
+        btn.textContent = "Copy";
+        btn.onclick = async () => {
+          await navigator.clipboard.writeText(
+            pre.querySelector("code").textContent,
+          );
+          btn.textContent = "Copied";
+          setTimeout(() => (btn.textContent = "Copy"), 1500);
+        };
+        pre.append(btn);
+      }
+    </script>
+  </body>
+</html>

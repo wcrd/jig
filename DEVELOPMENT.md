@@ -17,6 +17,7 @@ Jig is developed and released on macOS. The backend keeps its macOS-only pieces 
 - `src-tauri/src/` — Rust backend: log loading and lane layout (`repo.rs`, `layout.rs`), diffs (`diff.rs`), conflicts (`conflict.rs`), and repository changes run through the user's `jj` (`jj_cli.rs`)
 - `src-tauri/examples/` — `fixture` and `dump` helpers for working without the app
 - `scripts/` — playground repo, benchmark and screenshot helpers. These are macOS only for now.
+- `site/` — the website, plain HTML with no build step, published to GitHub Pages by `.github/workflows/site.yml` on pushes to `main` that touch it
 
 ## Frontend
 
@@ -125,10 +126,16 @@ Chrome isn't the webview the app runs in (WebKit on macOS and Linux, WebView2 on
 
 ## Screenshots
 
-The README screenshots come from the browser preview with the playground fixture, captured by headless Chrome. With `npm run dev` running:
+The README and website screenshots come from the browser preview with the playground fixture, captured by headless Chrome. With `npm run dev` running:
 
 ```bash
 node scripts/screenshots.mjs docs/screenshots light '[{"click":"*","text":"Sidebar: add items"},{"click":".file-list .tree-row.file","text":"sidebar.rs"},{"shot":"main"},{"click":"*","text":"Docs: how to contribute"},{"click":"*","text":"lock out repeated failures","meta":true},{"click":"button","text":"Changes"},{"click":".file-list .tree-row.file","text":"login.rs"},{"wait":500},{"shot":"compare"},{"eval":"document.dispatchEvent(new KeyboardEvent(\"keydown\",{key:\"Escape\",bubbles:true}))"},{"click":"*","text":"lock out repeated failures"},{"click":"[data-action=tree]"},{"click":".file-list .tree-row.file","text":"login.rs"},{"click":"[data-ref=full-diff-enter]"},{"wait":500},{"shot":"diff"},{"eval":"document.dispatchEvent(new KeyboardEvent(\"keydown\",{key:\"Escape\",bubbles:true}))"},{"click":"*","text":"Merge the style changes"},{"click":"button","text":"Resolve…"},{"wait":500},{"shot":"resolve"},{"eval":"document.dispatchEvent(new KeyboardEvent(\"keydown\",{key:\"Escape\",bubbles:true}))"},{"click":"[data-ref=oplog-button]"},{"wait":500},{"shot":"oplog"}]'
 ```
 
-Shots are 2× scale (2800×1720); the committed copies are downscaled to 2000px wide with `sips -Z 2000`.
+Shots are 2× scale (2800×1720); the committed copies are downscaled to 2000px wide with `sips -Z 2000`. Then make the website's WebP copies in `site/img` (needs `cwebp`, from `brew install webp`):
+
+```bash
+scripts/site-images.sh
+```
+
+To preview the site, serve `site/`, for example with `python3 -m http.server -d site`.
